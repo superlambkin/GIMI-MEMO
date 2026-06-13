@@ -37,7 +37,7 @@ fun GijiMemoNavHost(navController: NavHostController = rememberNavController()) 
         }
         composable(Routes.RECORDING) {
             RecordingScreen(
-                onStop = { id -> navController.navigate(Routes.processing(id)) },
+                onTranscribe = { id -> navController.navigate(Routes.processing(id)) },
                 onCancel = { navController.popBackStack() }
             )
         }

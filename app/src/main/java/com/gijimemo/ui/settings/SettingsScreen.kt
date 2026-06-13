@@ -178,7 +178,15 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        Button(onClick = onBack) { Text("戻る") }
+        // すべての設定は DataStore に即時保存されるため、
+        // 「保存」は画面を閉じる動作と同じ。「キャンセル」も同じ（破棄対象なし）。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            TextButton(onClick = onBack) { Text("キャンセル") }
+            Button(onClick = onBack) { Text("保存") }
+        }
     }
 
     // 接続テストの結果ダイアログ
