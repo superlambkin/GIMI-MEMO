@@ -46,7 +46,9 @@ class ProcessingViewModel @Inject constructor(
                     ?: error("API Key for ${providerConfig.name} not set")
                 val callMode = settings.defaultCallMode.first()
                 val prompt = settings.defaultPromptTemplate.first()
-                val client: LlmClient = provider.createClient(providerConfig, apiKey)
+                val model = settings.modelForProvider(providerConfig.name).first()
+                    ?: providerConfig.defaultModel
+                val client: LlmClient = provider.createClient(providerConfig, apiKey, model)
 
                 val sb = StringBuilder()
                 client.transcribeAndFormat(audioFile, prompt, callMode).collect { event ->
@@ -60,7 +62,7 @@ class ProcessingViewModel @Inject constructor(
                         }
                         is LlmEvent.Complete -> {
                             val fullText = event.fullText.ifEmpty { sb.toString() }
-                            finalizeSession(fullText, providerConfig.name, providerConfig.defaultModel)
+                            finalizeSession(fullText, providerConfig.name, model)
                             _state.value = _state.value.copy(
                                 running = false,
                                 streamText = fullText,

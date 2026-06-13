@@ -37,6 +37,7 @@ fun SettingsScreen(
     val recipient by viewModel.recipient.collectAsStateWithLifecycle()
     val selected by viewModel.selectedProviderName.collectAsStateWithLifecycle()
     val prompt by viewModel.promptTemplate.collectAsStateWithLifecycle()
+    val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -48,14 +49,14 @@ fun SettingsScreen(
         Text("设置", style = MaterialTheme.typography.headlineMedium)
 
         // Provider dropdown
-        var expanded by remember { mutableStateOf(false) }
+        var providerExpanded by remember { mutableStateOf(false) }
         Text("LLM 服务商：${selected ?: "未选"}")
-        TextButton(onClick = { expanded = true }) { Text("更改") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        TextButton(onClick = { providerExpanded = true }) { Text("更改") }
+        DropdownMenu(expanded = providerExpanded, onDismissRequest = { providerExpanded = false }) {
             viewModel.providers.forEach { p ->
                 DropdownMenuItem(
                     text = { Text(p.name) },
-                    onClick = { viewModel.selectProvider(p.name); expanded = false }
+                    onClick = { viewModel.selectProvider(p.name); providerExpanded = false }
                 )
             }
         }
@@ -73,6 +74,22 @@ fun SettingsScreen(
                 label = { Text("${currentProvider.name} API Key") },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Model dropdown (T5.3)
+            val models = currentProvider.supportedModels
+            if (models.isNotEmpty()) {
+                var modelExpanded by remember { mutableStateOf(false) }
+                Text("默认模型：${currentModel.ifBlank { currentProvider.defaultModel }}")
+                TextButton(onClick = { modelExpanded = true }) { Text("更改模型") }
+                DropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
+                    models.forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(m) },
+                            onClick = { viewModel.setModel(m); modelExpanded = false }
+                        )
+                    }
+                }
+            }
         }
 
         // Call Mode

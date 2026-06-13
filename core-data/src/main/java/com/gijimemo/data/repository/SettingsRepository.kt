@@ -38,6 +38,8 @@ class SettingsRepository @Inject constructor(
     val defaultThemeMode get() = store.defaultThemeMode
     val defaultPromptTemplate get() = store.defaultPromptTemplate
 
+    fun modelForProvider(providerName: String) = store.modelForProvider(providerName)
+
     suspend fun setDefaultProvider(v: String) = store.setDefaultProvider(v)
 
     suspend fun setDefaultCallMode(v: LlmCallMode) = store.setDefaultCallMode(v)
@@ -46,4 +48,6 @@ class SettingsRepository @Inject constructor(
     suspend fun setDefaultFormatPriority(v: String) = store.setDefaultFormatPriority(v)
     suspend fun setDefaultThemeMode(v: String) = store.setDefaultThemeMode(v)
     suspend fun setDefaultPromptTemplate(v: String) = store.setDefaultPromptTemplate(v)
+    suspend fun setModelForProvider(providerName: String, model: String) =
+        store.setModelForProvider(providerName, model)
 }

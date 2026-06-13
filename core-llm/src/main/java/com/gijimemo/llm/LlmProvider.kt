@@ -13,17 +13,18 @@ class LlmProvider @Inject constructor(
 ) {
     /**
      * 构造 LlmClient 及其配置。所有 provider 共用 OpenAI 兼容协议。
+     * @param model 用户在设置中选的具体模型；为 null 时回退到 config.defaultModel
      */
-    fun createClient(config: LlmProviderConfig, apiKey: String): LlmClient {
-        return WrappedLlmClient(okHttpClient, config, apiKey)
+    fun createClient(config: LlmProviderConfig, apiKey: String, model: String? = null): LlmClient {
+        return WrappedLlmClient(okHttpClient, config, apiKey, model)
     }
 
     companion object {
         /**
          * 静态工厂方法（用于测试直接调用，无需 Hilt 注入）。
          */
-        fun createClient(config: LlmProviderConfig, apiKey: String, okHttpClient: OkHttpClient): LlmClient {
-            return WrappedLlmClient(okHttpClient, config, apiKey)
+        fun createClient(config: LlmProviderConfig, apiKey: String, okHttpClient: OkHttpClient, model: String? = null): LlmClient {
+            return WrappedLlmClient(okHttpClient, config, apiKey, model)
         }
     }
 }
@@ -31,7 +32,8 @@ class LlmProvider @Inject constructor(
 private class WrappedLlmClient(
     private val okHttpClient: OkHttpClient,
     private val config: LlmProviderConfig,
-    private val apiKey: String
+    private val apiKey: String,
+    private val modelOverride: String?
 ) : LlmClient {
     private val delegate = OpenAiCompatibleClient(okHttpClient)
 
@@ -46,7 +48,7 @@ private class WrappedLlmClient(
         val options = LlmOptions(
             baseUrl = config.baseUrl,
             apiKey = apiKey,
-            model = config.defaultModel,
+            model = modelOverride ?: config.defaultModel,
             callMode = when (effectiveMode) {
                 LlmCallMode.MULTIMODAL -> LlmOptions.CallMode.MULTIMODAL
                 LlmCallMode.WHISPER_THEN_SUMMARY -> LlmOptions.CallMode.WHISPER_THEN_SUMMARY

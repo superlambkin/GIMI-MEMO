@@ -43,6 +43,13 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setDefaultThemeMode(v: String) = context.dataStore.edit { it[keyThemeMode] = v }
     suspend fun setDefaultPromptTemplate(v: String) = context.dataStore.edit { it[keyPromptTemplate] = v }
 
+    // Per-provider model selection: key = "default_model_<providerName>"
+    fun modelForProvider(providerName: String): Flow<String?> =
+        context.dataStore.data.map { it[stringPreferencesKey("default_model_$providerName")] }
+
+    suspend fun setModelForProvider(providerName: String, model: String) =
+        context.dataStore.edit { it[stringPreferencesKey("default_model_$providerName")] = model }
+
     companion object {
         const val DEFAULT_PROMPT_TEMPLATE = """请把以下会议录音转写为中文，并按以下结构输出 Markdown 会议纪要：
 
