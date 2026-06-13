@@ -6,6 +6,7 @@ import com.gijimemo.data.model.LlmCallMode
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +22,7 @@ class SettingsDataStoreTest {
     fun setup() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         store = SettingsDataStore(context)
+        runBlocking { store.setRecipients(emptyList()) }
     }
 
     @Test
@@ -40,8 +42,43 @@ class SettingsDataStoreTest {
     }
 
     @Test
-    fun `set and read default recipient`() = runTest {
-        store.setDefaultRecipient("test@example.com")
-        assertThat(store.defaultRecipient.first()).isEqualTo("test@example.com")
+    fun `recipients default to empty list`() = runTest {
+        assertThat(store.recipients.first()).isEmpty()
+    }
+
+    @Test
+    fun `addRecipient appends to list`() = runTest {
+        store.addRecipient("a@example.com")
+        store.addRecipient("b@example.com")
+        assertThat(store.recipients.first()).containsExactly("a@example.com", "b@example.com")
+    }
+
+    @Test
+    fun `addRecipient ignores duplicate`() = runTest {
+        store.addRecipient("dup@example.com")
+        store.addRecipient("dup@example.com")
+        assertThat(store.recipients.first()).containsExactly("dup@example.com")
+    }
+
+    @Test
+    fun `addRecipient ignores blank email`() = runTest {
+        store.addRecipient("")
+        store.addRecipient("   ")
+        assertThat(store.recipients.first()).isEmpty()
+    }
+
+    @Test
+    fun `removeRecipient drops from list`() = runTest {
+        store.addRecipient("a@example.com")
+        store.addRecipient("b@example.com")
+        store.removeRecipient("a@example.com")
+        assertThat(store.recipients.first()).containsExactly("b@example.com")
+    }
+
+    @Test
+    fun `setRecipients replaces entire list`() = runTest {
+        store.addRecipient("a@example.com")
+        store.setRecipients(listOf("x@example.com", "y@example.com"))
+        assertThat(store.recipients.first()).containsExactly("x@example.com", "y@example.com")
     }
 }

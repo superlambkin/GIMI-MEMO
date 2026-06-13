@@ -16,7 +16,7 @@ class SettingsDataStore(private val context: Context) {
     private val keyModel = stringPreferencesKey("default_model")
     private val keyCallMode = stringPreferencesKey("default_call_mode")
     private val keyChunkMinutes = intPreferencesKey("default_chunk_minutes")
-    private val keyRecipient = stringPreferencesKey("default_recipient")
+    private val keyRecipients = stringPreferencesKey("recipient_list")
     private val keyFormatPriority = stringPreferencesKey("format_priority")
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyPromptTemplate = stringPreferencesKey("prompt_template")
@@ -27,7 +27,14 @@ class SettingsDataStore(private val context: Context) {
         LlmCallMode.valueOf(it[keyCallMode] ?: LlmCallMode.MULTIMODAL.name)
     }
     val defaultChunkMinutes: Flow<Int> = context.dataStore.data.map { it[keyChunkMinutes] ?: 25 }
-    val defaultRecipient: Flow<String> = context.dataStore.data.map { it[keyRecipient] ?: "" }
+    val defaultRecipient: Flow<String> = context.dataStore.data.map { it[keyRecipients] ?: "" }
+    val recipients: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[keyRecipients]
+            ?.split("\n")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+    }
     val defaultFormatPriority: Flow<String> = context.dataStore.data.map { it[keyFormatPriority] ?: "docx,md,txt" }
     val defaultThemeMode: Flow<String> = context.dataStore.data.map { it[keyThemeMode] ?: "system" }
     val defaultPromptTemplate: Flow<String> = context.dataStore.data.map {
@@ -38,7 +45,32 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setDefaultModel(v: String) = context.dataStore.edit { it[keyModel] = v }
     suspend fun setDefaultCallMode(v: LlmCallMode) = context.dataStore.edit { it[keyCallMode] = v.name }
     suspend fun setDefaultChunkMinutes(v: Int) = context.dataStore.edit { it[keyChunkMinutes] = v }
-    suspend fun setDefaultRecipient(v: String) = context.dataStore.edit { it[keyRecipient] = v }
+    suspend fun setDefaultRecipient(v: String) = context.dataStore.edit { it[keyRecipients] = v }
+    suspend fun setRecipients(list: List<String>) =
+        context.dataStore.edit { it[keyRecipients] = list.joinToString("\n") }
+    suspend fun addRecipient(email: String) {
+        val trimmed = email.trim()
+        if (trimmed.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[keyRecipients]
+                ?.split("\n")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?: emptyList()
+            if (current.contains(trimmed)) return@edit
+            prefs[keyRecipients] = (current + trimmed).joinToString("\n")
+        }
+    }
+    suspend fun removeRecipient(email: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[keyRecipients]
+                ?.split("\n")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?: emptyList()
+            prefs[keyRecipients] = current.filter { it != email }.joinToString("\n")
+        }
+    }
     suspend fun setDefaultFormatPriority(v: String) = context.dataStore.edit { it[keyFormatPriority] = v }
     suspend fun setDefaultThemeMode(v: String) = context.dataStore.edit { it[keyThemeMode] = v }
     suspend fun setDefaultPromptTemplate(v: String) = context.dataStore.edit { it[keyPromptTemplate] = v }

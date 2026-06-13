@@ -34,6 +34,7 @@ class SettingsRepository @Inject constructor(
     val defaultCallMode get() = store.defaultCallMode
     val defaultChunkMinutes get() = store.defaultChunkMinutes
     val defaultRecipient get() = store.defaultRecipient
+    val recipients get() = store.recipients
     val defaultFormatPriority get() = store.defaultFormatPriority
     val defaultThemeMode get() = store.defaultThemeMode
     val defaultPromptTemplate get() = store.defaultPromptTemplate
@@ -45,6 +46,9 @@ class SettingsRepository @Inject constructor(
     suspend fun setDefaultCallMode(v: LlmCallMode) = store.setDefaultCallMode(v)
     suspend fun setDefaultChunkMinutes(v: Int) = store.setDefaultChunkMinutes(v)
     suspend fun setDefaultRecipient(v: String) = store.setDefaultRecipient(v)
+    suspend fun setRecipients(list: List<String>) = store.setRecipients(list)
+    suspend fun addRecipient(email: String) = store.addRecipient(email)
+    suspend fun removeRecipient(email: String) = store.removeRecipient(email)
     suspend fun setDefaultFormatPriority(v: String) = store.setDefaultFormatPriority(v)
     suspend fun setDefaultThemeMode(v: String) = store.setDefaultThemeMode(v)
     suspend fun setDefaultPromptTemplate(v: String) = store.setDefaultPromptTemplate(v)

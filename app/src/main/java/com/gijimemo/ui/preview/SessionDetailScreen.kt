@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.ui.settings.SettingsViewModel
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,14 +50,22 @@ import java.io.File
 fun SessionDetailScreen(
     defaultRecipient: String = "",
     onBack: () -> Unit,
-    viewModel: SessionDetailViewModel = hiltViewModel()
+    viewModel: SessionDetailViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val recipients by settingsViewModel.recipients.collectAsStateWithLifecycle()
     var recipient by remember { mutableStateOf(defaultRecipient) }
+    var recipientExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(recipients) {
+        if (recipient.isBlank() && recipients.isNotEmpty()) {
+            recipient = recipients.first()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -172,11 +183,37 @@ fun SessionDetailScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 邮件分享
+            // 邮件分享 - 收件人预设下拉
+            Text("收件人", style = MaterialTheme.typography.bodySmall)
+            TextButton(
+                onClick = { recipientExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (recipient.isBlank()) "选择收件人" else recipient)
+            }
+            DropdownMenu(
+                expanded = recipientExpanded,
+                onDismissRequest = { recipientExpanded = false }
+            ) {
+                if (recipients.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("（请先在设置中添加收件人）") },
+                        onClick = { recipientExpanded = false }
+                    )
+                } else {
+                    recipients.forEach { email ->
+                        DropdownMenuItem(
+                            text = { Text(email) },
+                            onClick = { recipient = email; recipientExpanded = false }
+                        )
+                    }
+                }
+            }
             OutlinedTextField(
                 value = recipient,
                 onValueChange = { recipient = it },
-                label = { Text("收件人邮箱") },
+                label = { Text("或手动输入收件人") },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Button(

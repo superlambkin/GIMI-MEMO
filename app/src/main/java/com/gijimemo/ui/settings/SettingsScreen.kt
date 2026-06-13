@@ -2,14 +2,21 @@ package com.gijimemo.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -34,7 +41,7 @@ fun SettingsScreen(
 ) {
     val callMode by viewModel.callMode.collectAsStateWithLifecycle()
     val chunk by viewModel.chunkMinutes.collectAsStateWithLifecycle()
-    val recipient by viewModel.recipient.collectAsStateWithLifecycle()
+    val recipients by viewModel.recipients.collectAsStateWithLifecycle()
     val selected by viewModel.selectedProviderName.collectAsStateWithLifecycle()
     val prompt by viewModel.promptTemplate.collectAsStateWithLifecycle()
     val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
@@ -113,13 +120,52 @@ fun SettingsScreen(
             steps = 60
         )
 
-        // Recipient
-        OutlinedTextField(
-            value = recipient,
-            onValueChange = viewModel::setRecipient,
-            label = { Text("默认收件人") },
-            modifier = Modifier.fillMaxSize()
-        )
+        // Recipient list (预设收件人)
+        Text("收件人预设", style = MaterialTheme.typography.titleSmall)
+        if (recipients.isEmpty()) {
+            Text(
+                text = "（暂无）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            recipients.forEach { email ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(email, modifier = Modifier.padding(8.dp))
+                        IconButton(onClick = { viewModel.removeRecipient(email) }) {
+                            Icon(Icons.Filled.Close, contentDescription = "删除")
+                        }
+                    }
+                }
+            }
+        }
+        var newRecipient by remember { mutableStateOf("") }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = newRecipient,
+                onValueChange = { newRecipient = it },
+                label = { Text("新收件人邮箱") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(
+                onClick = {
+                    if (newRecipient.isNotBlank()) {
+                        viewModel.addRecipient(newRecipient.trim())
+                        newRecipient = ""
+                    }
+                },
+                enabled = newRecipient.isNotBlank()
+            ) { Text("添加") }
+        }
 
         // Prompt template
         OutlinedTextField(

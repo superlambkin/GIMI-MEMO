@@ -35,6 +35,9 @@ class SettingsViewModel @Inject constructor(
     val recipient: StateFlow<String> = settings.defaultRecipient
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val recipients: StateFlow<List<String>> = settings.recipients
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val promptTemplate: StateFlow<String> = settings.defaultPromptTemplate
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
@@ -73,6 +76,9 @@ class SettingsViewModel @Inject constructor(
     fun setRecipient(v: String) = viewModelScope.launch { settings.setDefaultRecipient(v) }
     fun setPromptTemplate(v: String) = viewModelScope.launch { settings.setDefaultPromptTemplate(v) }
     fun setApiKey(ref: String, key: String) = settings.setApiKey(ref, key)
+
+    fun addRecipient(email: String) = viewModelScope.launch { settings.addRecipient(email) }
+    fun removeRecipient(email: String) = viewModelScope.launch { settings.removeRecipient(email) }
 
     fun setModel(model: String) {
         val name = _selectedProviderName.value ?: return
