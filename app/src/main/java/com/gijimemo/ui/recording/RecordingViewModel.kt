@@ -29,6 +29,9 @@ class RecordingViewModel @Inject constructor(
     val state: StateFlow<RecordingState> = recorder.state
         .stateIn(viewModelScope, SharingStarted.Eagerly, RecordingState.Idle)
 
+    /** 録音中の実時間振幅 (0-32767)。UI の波形表示用。 */
+    val amplitude: kotlinx.coroutines.flow.Flow<Int> = recorder.amplitude
+
     private val _sessionId = MutableStateFlow<String?>(null)
 
     fun startRecording() {

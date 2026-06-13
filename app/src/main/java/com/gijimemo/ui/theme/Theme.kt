@@ -1,40 +1,49 @@
 package com.gijimemo.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
-)
+/**
+ * GimiMemo はダークテーマ固定（業務系高級感 UI）。
+ * 動的カラー (Material You) は使用しない — ブランドの一貫性を優先。
+ */
+private val GimiMemoDarkColorScheme = darkColorScheme(
+    primary = Gold500,
+    onPrimary = NavyBackground,
+    primaryContainer = NavySurface,
+    onPrimaryContainer = Gold200,
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    secondary = NavySurfaceVariant,
+    onSecondary = TextPrimary,
+    secondaryContainer = NavySurface,
+    onSecondaryContainer = TextSecondary,
+
+    tertiary = Gold400,
+    onTertiary = NavyBackground,
+
+    background = NavyBackground,
+    onBackground = TextPrimary,
+
+    surface = NavySurface,
+    onSurface = TextPrimary,
+    surfaceVariant = NavySurfaceVariant,
+    onSurfaceVariant = TextSecondary,
+
+    outline = NavyOutline,
+    outlineVariant = NavyOutline,
+
+    error = Error,
+    onError = TextPrimary
 )
 
 @Composable
 fun GijiMemoTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    // ブランド一貫性のため、ダーク固定
+    val colorScheme = GimiMemoDarkColorScheme
     MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }
