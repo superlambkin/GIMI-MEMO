@@ -41,4 +41,19 @@ class RecordingViewModelTest {
         val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true))
         assertThat(vm.state.value).isEqualTo(RecordingState.Idle)
     }
+
+    @Test
+    fun `stopRecording records the durationMs passed in`() = runTest {
+        coEvery { recorder.stop() } returns "/tmp/test.mp3"
+        val context = mockk<android.content.Context>(relaxed = true) {
+            every { filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        }
+        val vm = RecordingViewModel(recorder, repo, context)
+        vm.startRecording()
+
+        val session = vm.stopRecording(title = "Test", durationMs = 12_345L)
+
+        assertThat(session).isNotNull()
+        assertThat(session!!.durationMs).isEqualTo(12_345L)
+    }
 }

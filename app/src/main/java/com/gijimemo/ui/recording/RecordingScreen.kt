@@ -111,7 +111,10 @@ fun RecordingScreen(
 
                 Button(onClick = {
                     scope.launch {
-                        val session = viewModel.stopRecording("会议 ${System.currentTimeMillis()}")
+                        val session = viewModel.stopRecording(
+                            title = "会议 ${System.currentTimeMillis()}",
+                            durationMs = elapsedMs
+                        )
                         if (session != null) onStop(session.id)
                     }
                 }, enabled = state == RecordingState.Recording || state == RecordingState.Paused) {

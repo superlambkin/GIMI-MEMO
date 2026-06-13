@@ -118,6 +118,15 @@ fun SessionDetailScreen(
                                 )
                             }
                         }
+                        if (session.durationMs > 0L) {
+                            val totalSec = session.durationMs / 1000
+                            val min = totalSec / 60
+                            val sec = totalSec % 60
+                            Text(
+                                text = "时长: %02d:%02d".format(min, sec),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         OutlinedButton(
                             onClick = { showRenameDialog = true },
                             modifier = Modifier.fillMaxWidth()

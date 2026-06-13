@@ -44,7 +44,7 @@ class RecordingViewModel @Inject constructor(
     fun pauseRecording() = viewModelScope.launch { recorder.pause() }
     fun resumeRecording() = viewModelScope.launch { recorder.resume() }
 
-    suspend fun stopRecording(title: String): Session? {
+    suspend fun stopRecording(title: String, durationMs: Long): Session? {
         val id = _sessionId.value ?: return null
         val path = recorder.stop()
         val file = File(path)
@@ -52,7 +52,7 @@ class RecordingViewModel @Inject constructor(
             id = id,
             title = title.ifBlank { "会议 ${System.currentTimeMillis()}" },
             createdAt = System.currentTimeMillis(),
-            durationMs = 0L,
+            durationMs = durationMs,
             audioFilePath = path,
             audioSizeBytes = file.length(),
             status = SessionStatus.STOPPED
