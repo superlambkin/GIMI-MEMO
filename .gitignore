@@ -13,3 +13,8 @@ captures/
 *.keystore
 *.jks
 google-services.json
+.env.sh
+test_screenshots/
+ui_dump.*
+ui_dump.b64
+ui_dump.xml
