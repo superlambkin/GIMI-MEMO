@@ -32,11 +32,11 @@ fun ProcessingScreen(
 
     Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
         if (state.error != null) {
-            Text("出错：${state.error}")
-            Button(onClick = onError) { Text("返回") }
+            Text("エラー：${state.error}")
+            Button(onClick = onError) { Text("戻る") }
         } else {
             CircularProgressIndicator()
-            Text(text = state.streamText.ifEmpty { "处理中..." })
+            Text(text = state.streamText.ifEmpty { "処理中..." })
         }
     }
 }

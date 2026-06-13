@@ -48,19 +48,19 @@ fun PreviewScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text(text = state.session?.title ?: "加载中")
+        Text(text = state.session?.title ?: "読み込み中")
         Text(text = state.markdown)
 
         // Recipient selector (preset list dropdown)
-        Text("收件人", style = MaterialTheme.typography.bodySmall)
+        Text("受信者", style = MaterialTheme.typography.bodySmall)
         var expanded by remember { mutableStateOf(false) }
         TextButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (recipient.isBlank()) "选择收件人" else recipient)
+            Text(if (recipient.isBlank()) "受信者を選択" else recipient)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (recipients.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text("（请先在设置中添加收件人）") },
+                    text = { Text("（設定で受信者を追加してください）") },
                     onClick = { expanded = false }
                 )
             } else {
@@ -76,7 +76,7 @@ fun PreviewScreen(
         OutlinedTextField(
             value = recipient,
             onValueChange = { recipient = it },
-            label = { Text("或手动输入收件人") },
+            label = { Text("または手動で入力") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
         )
@@ -86,8 +86,8 @@ fun PreviewScreen(
             modifier = Modifier.padding(vertical = 4.dp)
         ) {
             Icon(Icons.Filled.Share, contentDescription = null)
-            Text(" 分享到邮件")
+            Text(" メールで共有")
         }
-        Button(onClick = onBack) { Text("返回") }
+        Button(onClick = onBack) { Text("戻る") }
     }
 }

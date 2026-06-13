@@ -53,12 +53,12 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("设置", style = MaterialTheme.typography.headlineMedium)
+        Text("設定", style = MaterialTheme.typography.headlineMedium)
 
         // Provider dropdown
         var providerExpanded by remember { mutableStateOf(false) }
-        Text("LLM 服务商：${selected ?: "未选"}")
-        TextButton(onClick = { providerExpanded = true }) { Text("更改") }
+        Text("LLM プロバイダー：${selected ?: "未選択"}")
+        TextButton(onClick = { providerExpanded = true }) { Text("変更") }
         DropdownMenu(expanded = providerExpanded, onDismissRequest = { providerExpanded = false }) {
             viewModel.providers.forEach { p ->
                 DropdownMenuItem(
@@ -93,8 +93,8 @@ fun SettingsScreen(
             val models = currentProvider.supportedModels
             if (models.isNotEmpty()) {
                 var modelExpanded by remember { mutableStateOf(false) }
-                Text("默认模型：${currentModel.ifBlank { currentProvider.defaultModel }}")
-                TextButton(onClick = { modelExpanded = true }) { Text("更改模型") }
+                Text("デフォルトモデル：${currentModel.ifBlank { currentProvider.defaultModel }}")
+                TextButton(onClick = { modelExpanded = true }) { Text("モデル変更") }
                 DropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
                     models.forEach { m ->
                         DropdownMenuItem(
@@ -107,12 +107,12 @@ fun SettingsScreen(
         }
 
         // Call Mode
-        Text("调用模式：${callMode.name}")
-        TextButton(onClick = { viewModel.setCallMode(LlmCallMode.MULTIMODAL) }) { Text("多模态") }
-        TextButton(onClick = { viewModel.setCallMode(LlmCallMode.WHISPER_THEN_SUMMARY) }) { Text("Whisper+总结") }
+        Text("呼び出しモード：${callMode.name}")
+        TextButton(onClick = { viewModel.setCallMode(LlmCallMode.MULTIMODAL) }) { Text("マルチモーダル") }
+        TextButton(onClick = { viewModel.setCallMode(LlmCallMode.WHISPER_THEN_SUMMARY) }) { Text("Whisper+要約") }
 
         // Chunk minutes
-        Text("切片阈值：$chunk 分钟 (0=不限)")
+        Text("分割しきい値：$chunk 分 (0=無制限)")
         Slider(
             value = chunk.toFloat(),
             onValueChange = { viewModel.setChunkMinutes(it.toInt()) },
@@ -121,10 +121,10 @@ fun SettingsScreen(
         )
 
         // Recipient list (预设收件人)
-        Text("收件人预设", style = MaterialTheme.typography.titleSmall)
+        Text("受信者プリセット", style = MaterialTheme.typography.titleSmall)
         if (recipients.isEmpty()) {
             Text(
-                text = "（暂无）",
+                text = "（なし）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -138,7 +138,7 @@ fun SettingsScreen(
                     ) {
                         Text(email, modifier = Modifier.padding(8.dp))
                         IconButton(onClick = { viewModel.removeRecipient(email) }) {
-                            Icon(Icons.Filled.Close, contentDescription = "删除")
+                            Icon(Icons.Filled.Close, contentDescription = "削除")
                         }
                     }
                 }
@@ -152,7 +152,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = newRecipient,
                 onValueChange = { newRecipient = it },
-                label = { Text("新收件人邮箱") },
+                label = { Text("新しい受信者メール") },
                 singleLine = true,
                 modifier = Modifier.weight(1f)
             )
@@ -164,17 +164,17 @@ fun SettingsScreen(
                     }
                 },
                 enabled = newRecipient.isNotBlank()
-            ) { Text("添加") }
+            ) { Text("追加") }
         }
 
         // Prompt template
         OutlinedTextField(
             value = prompt,
             onValueChange = viewModel::setPromptTemplate,
-            label = { Text("Prompt 模板") },
+            label = { Text("プロンプトテンプレート") },
             modifier = Modifier.fillMaxSize()
         )
 
-        Button(onClick = onBack) { Text("返回") }
+        Button(onClick = onBack) { Text("戻る") }
     }
 }

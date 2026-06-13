@@ -74,14 +74,14 @@ fun RecordingScreen(
     Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
         if (!hasPermission) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("需要麦克风权限")
+                Text("マイクの許可が必要です")
                 Button(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
-                    Text("授权")
+                    Text("許可")
                 }
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(text = "状态：${state.label()}", fontSize = 20.sp)
+                Text(text = "ステータス：${state.label()}", fontSize = 20.sp)
                 Text(text = formatDuration(elapsedMs), fontSize = 32.sp)
 
                 when (state) {
@@ -91,38 +91,38 @@ fun RecordingScreen(
                             viewModel.startRecording()
                         }) {
                             Icon(Icons.Filled.Mic, contentDescription = null)
-                            Text(" 开始录音")
+                            Text(" 録音開始")
                         }
                     }
                     RecordingState.Recording -> {
                         IconButton(onClick = { viewModel.pauseRecording() }) {
-                            Icon(Icons.Filled.Pause, contentDescription = "暂停", modifier = Modifier.size(48.dp))
+                            Icon(Icons.Filled.Pause, contentDescription = "一時停止", modifier = Modifier.size(48.dp))
                         }
                     }
                     RecordingState.Paused -> {
                         IconButton(onClick = { viewModel.resumeRecording() }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "继续", modifier = Modifier.size(48.dp))
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "再開", modifier = Modifier.size(48.dp))
                         }
                     }
                     is RecordingState.Error -> {
-                        Text("录音出错，请重试", color = androidx.compose.ui.graphics.Color.Red)
+                        Text("録音エラー、再試行してください", color = androidx.compose.ui.graphics.Color.Red)
                     }
                 }
 
                 Button(onClick = {
                     scope.launch {
                         val session = viewModel.stopRecording(
-                            title = "会议 ${System.currentTimeMillis()}",
+                            title = "会議 ${System.currentTimeMillis()}",
                             durationMs = elapsedMs
                         )
                         if (session != null) onStop(session.id)
                     }
                 }, enabled = state == RecordingState.Recording || state == RecordingState.Paused) {
                     Icon(Icons.Filled.Stop, contentDescription = null)
-                    Text(" 停止并转写")
+                    Text(" 停止して文字起こし")
                 }
                 Button(onClick = onCancel) {
-                    Text("取消")
+                    Text("キャンセル")
                 }
             }
         }
@@ -137,9 +137,9 @@ private fun formatDuration(ms: Long): String {
 }
 
 private fun RecordingState.label(): String = when (this) {
-    RecordingState.Idle -> "未开始"
-    RecordingState.Recording -> "录音中"
-    RecordingState.Paused -> "已暂停"
-    RecordingState.Stopped -> "已停止"
-    is RecordingState.Error -> "出错"
+    RecordingState.Idle -> "未開始"
+    RecordingState.Recording -> "録音中"
+    RecordingState.Paused -> "一時停止中"
+    RecordingState.Stopped -> "停止済み"
+    is RecordingState.Error -> "エラー"
 }

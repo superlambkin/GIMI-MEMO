@@ -26,18 +26,18 @@ fun SessionCard(session: Session, onClick: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = session.title)
             Text(text = formatDate(session.createdAt))
-            Text(text = "状态: ${session.status.label()}")
+            Text(text = "ステータス: ${session.status.label()}")
         }
     }
 }
 
 private fun SessionStatus.label(): String = when (this) {
-    SessionStatus.RECORDING -> "录音中"
-    SessionStatus.STOPPED -> "已停止"
-    SessionStatus.TRANSCRIBING -> "转写中"
-    SessionStatus.READY -> "已就绪"
-    SessionStatus.SHARED -> "已发送"
-    SessionStatus.ERROR -> "失败"
+    SessionStatus.RECORDING -> "録音中"
+    SessionStatus.STOPPED -> "停止済み"
+    SessionStatus.TRANSCRIBING -> "文字起こし中"
+    SessionStatus.READY -> "完了"
+    SessionStatus.SHARED -> "共有済み"
+    SessionStatus.ERROR -> "失敗"
 }
 
 private fun formatDate(epoch: Long): String =

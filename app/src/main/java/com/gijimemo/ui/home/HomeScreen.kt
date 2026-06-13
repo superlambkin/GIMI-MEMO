@@ -37,7 +37,7 @@ fun HomeScreen(
                 title = { Text("GijiMemo") },
                 actions = {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                        Icon(Icons.Filled.Settings, contentDescription = "設定")
                     }
                 }
             )
@@ -46,7 +46,7 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 onClick = onNewRecording,
                 icon = { Icon(Icons.Filled.Mic, contentDescription = null) },
-                text = { Text("录音") }
+                text = { Text("録音") }
             )
         }
     ) { padding ->

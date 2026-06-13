@@ -105,7 +105,7 @@ class SessionDetailViewModel @Inject constructor(
         emailShare.shareViaEmail(
             attachments = files,
             subject = s.title,
-            body = "请查收会议纪要。\n\n生成时间：${formatDate(System.currentTimeMillis())}\n",
+            body = "会議の議事録をご確認ください。\n\n生成日時：${formatDate(System.currentTimeMillis())}\n",
             recipient = recipient
         )
         viewModelScope.launch {

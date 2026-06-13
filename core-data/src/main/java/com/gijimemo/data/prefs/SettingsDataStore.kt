@@ -83,22 +83,22 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit { it[stringPreferencesKey("default_model_$providerName")] = model }
 
     companion object {
-        const val DEFAULT_PROMPT_TEMPLATE = """请把以下会议录音转写为中文，并按以下结构输出 Markdown 会议纪要：
+        const val DEFAULT_PROMPT_TEMPLATE = """以下の会議録音を文字起こしし、以下の構造で Markdown 議事録を出力してください：
 
-# 会议主题
-（自动从内容提取）
+# 会議のテーマ
+（内容から自動抽出）
 
-## 参会人
-（识别发言人）
+## 参加者
+（発言者を識別）
 
-## 议题与讨论
-- 议题 1：... 发言人 A 的观点...
-- 议题 2：...
+## 議題と討論
+- 議題 1：... 発言者 A の意見...
+- 議題 2：...
 
-## 决策事项
-- 决策 1：...
+## 決定事項
+- 決定 1：...
 
-## 行动项
-- [ ] 负责人：事项（截止日期）"""
+## アクションアイテム
+- [ ] 担当者：事項（期限）"""
     }
 }

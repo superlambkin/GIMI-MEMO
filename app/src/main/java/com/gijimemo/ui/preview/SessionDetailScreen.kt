@@ -70,15 +70,15 @@ fun SessionDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.session?.title ?: "会话详情") },
+                title = { Text(state.session?.title ?: "セッション詳細") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 },
                 actions = {
                     IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "删除")
+                        Icon(Icons.Filled.Delete, contentDescription = "削除")
                     }
                 }
             )
@@ -105,7 +105,7 @@ fun SessionDetailScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                         Text(
-                            text = "状态: ${session.status.label()}",
+                            text = "ステータス: ${session.status.label()}",
                             style = MaterialTheme.typography.bodySmall,
                             color = when (session.status) {
                                 SessionStatus.READY -> MaterialTheme.colorScheme.primary
@@ -116,7 +116,7 @@ fun SessionDetailScreen(
                         )
                         if (session.llmProvider != null) {
                             Text(
-                                text = "模型: ${session.llmProvider} / ${session.llmModel ?: "?"}",
+                                text = "モデル: ${session.llmProvider} / ${session.llmModel ?: "?"}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -124,7 +124,7 @@ fun SessionDetailScreen(
                             val audioFile = File(session.audioFilePath)
                             if (audioFile.exists()) {
                                 Text(
-                                    text = "音频: ${audioFile.length() / 1024} KB",
+                                    text = "音声: ${audioFile.length() / 1024} KB",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
@@ -134,7 +134,7 @@ fun SessionDetailScreen(
                             val min = totalSec / 60
                             val sec = totalSec % 60
                             Text(
-                                text = "时长: %02d:%02d".format(min, sec),
+                                text = "長さ: %02d:%02d".format(min, sec),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -142,7 +142,7 @@ fun SessionDetailScreen(
                             onClick = { showRenameDialog = true },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("重命名")
+                            Text("名前変更")
                         }
                     }
                 }
@@ -151,7 +151,7 @@ fun SessionDetailScreen(
             // 转写内容
             if (state.markdown.isNotBlank()) {
                 Text(
-                    text = "转写结果",
+                    text = "文字起こし結果",
                     style = MaterialTheme.typography.titleSmall
                 )
                 Text(
@@ -164,7 +164,7 @@ fun SessionDetailScreen(
                 )
             } else {
                 Text(
-                    text = state.error ?: "暂无转写内容",
+                    text = state.error ?: "文字起こし結果なし",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -173,7 +173,7 @@ fun SessionDetailScreen(
 
             // 文档导出状态
             if (state.markdown.isNotBlank()) {
-                Text("文档（自动生成）", style = MaterialTheme.typography.titleSmall)
+                Text("ドキュメント（自動生成）", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Word: ${if (state.docxPath != null) "✓" else "..."}")
                     Text("MD: ${if (state.mdPath != null) "✓" else "..."}")
@@ -184,12 +184,12 @@ fun SessionDetailScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // 邮件分享 - 收件人预设下拉
-            Text("收件人", style = MaterialTheme.typography.bodySmall)
+            Text("受信者", style = MaterialTheme.typography.bodySmall)
             TextButton(
                 onClick = { recipientExpanded = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (recipient.isBlank()) "选择收件人" else recipient)
+                Text(if (recipient.isBlank()) "受信者を選択" else recipient)
             }
             DropdownMenu(
                 expanded = recipientExpanded,
@@ -197,7 +197,7 @@ fun SessionDetailScreen(
             ) {
                 if (recipients.isEmpty()) {
                     DropdownMenuItem(
-                        text = { Text("（请先在设置中添加收件人）") },
+                        text = { Text("（設定で受信者を追加してください）") },
                         onClick = { recipientExpanded = false }
                     )
                 } else {
@@ -212,7 +212,7 @@ fun SessionDetailScreen(
             OutlinedTextField(
                 value = recipient,
                 onValueChange = { recipient = it },
-                label = { Text("或手动输入收件人") },
+                label = { Text("または手動で入力") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -222,7 +222,7 @@ fun SessionDetailScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Filled.Share, contentDescription = null)
-                Text(" 分享到邮件")
+                Text(" メールで共有")
             }
         }
     }
@@ -231,18 +231,18 @@ fun SessionDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除会话?") },
-            text = { Text("此操作将删除录音、文档和会话记录，且不可恢复。") },
+            title = { Text("セッションを削除しますか?") },
+            text = { Text("録音、ドキュメント、セッションが削除され、復元できません。") },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteDialog = false
                     viewModel.delete(onDeleted = onBack)
                 }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("削除", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("キャンセル") }
             }
         )
     }
@@ -252,12 +252,12 @@ fun SessionDetailScreen(
         var newTitle by remember { mutableStateOf(state.session?.title ?: "") }
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("重命名") },
+            title = { Text("名前変更") },
             text = {
                 OutlinedTextField(
                     value = newTitle,
                     onValueChange = { newTitle = it },
-                    label = { Text("新标题") },
+                    label = { Text("新しいタイトル") },
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -268,17 +268,17 @@ fun SessionDetailScreen(
                 }) { Text("保存") }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDialog = false }) { Text("取消") }
+                TextButton(onClick = { showRenameDialog = false }) { Text("キャンセル") }
             }
         )
     }
 }
 
 private fun SessionStatus.label(): String = when (this) {
-    SessionStatus.RECORDING -> "录音中"
-    SessionStatus.STOPPED -> "已停止"
-    SessionStatus.TRANSCRIBING -> "转写中"
-    SessionStatus.READY -> "已完成"
-    SessionStatus.SHARED -> "已分享"
-    SessionStatus.ERROR -> "失败"
+    SessionStatus.RECORDING -> "録音中"
+    SessionStatus.STOPPED -> "停止済み"
+    SessionStatus.TRANSCRIBING -> "文字起こし中"
+    SessionStatus.READY -> "完了"
+    SessionStatus.SHARED -> "共有済み"
+    SessionStatus.ERROR -> "失敗"
 }
