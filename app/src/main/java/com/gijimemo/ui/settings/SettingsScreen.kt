@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -45,6 +46,7 @@ fun SettingsScreen(
     val selected by viewModel.selectedProviderName.collectAsStateWithLifecycle()
     val prompt by viewModel.promptTemplate.collectAsStateWithLifecycle()
     val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
+    val apiTestState by viewModel.apiTestState.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -88,6 +90,7 @@ fun SettingsScreen(
                 label = { Text("${currentProvider.name} API Key") },
                 modifier = Modifier.fillMaxSize()
             )
+            TextButton(onClick = { viewModel.testApi() }) { Text("接続テスト") }
 
             // Model dropdown (T5.3)
             val models = currentProvider.supportedModels
@@ -176,5 +179,30 @@ fun SettingsScreen(
         )
 
         Button(onClick = onBack) { Text("戻る") }
+    }
+
+    // 接続テストの結果ダイアログ
+    when (val s = apiTestState) {
+        SettingsViewModel.ApiTestState.Idle, SettingsViewModel.ApiTestState.Running -> Unit
+        is SettingsViewModel.ApiTestState.Success -> {
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissApiTest() },
+                title = { Text("接続成功") },
+                text = { Text("応答: ${s.response}") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissApiTest() }) { Text("OK") }
+                }
+            )
+        }
+        is SettingsViewModel.ApiTestState.Error -> {
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissApiTest() },
+                title = { Text("接続失敗") },
+                text = { Text(s.message) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissApiTest() }) { Text("OK") }
+                }
+            )
+        }
     }
 }

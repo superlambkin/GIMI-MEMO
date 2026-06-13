@@ -1,5 +1,6 @@
 package com.gijimemo.llm
 
+import android.util.Log
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -128,7 +129,46 @@ class OpenAiCompatibleClient @Inject constructor(
 
     // ─── STREAM EXECUTION ────────────────────────────────────
 
+    /**
+     * 接続テスト: 短い非ストリーミング chat completion を投げる。
+     * audio 不要・model 不要 (default を使う)。成功時は応答テキスト、失敗時は例外を投げる。
+     */
+    suspend fun testConnection(baseUrl: String, apiKey: String, model: String): String = withContext(Dispatchers.IO) {
+        val payload = mapOf(
+            "model" to model,
+            "messages" to listOf(
+                mapOf("role" to "user", "content" to "ping")
+            )
+        )
+        val body = moshi.adapter(Map::class.java).toJson(payload)
+            .toRequestBody("application/json".toMediaTypeOrNull())
+        val req = Request.Builder()
+            .url("$baseUrl/chat/completions")
+            .header("Authorization", "Bearer $apiKey")
+            .post(body)
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val respBody = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw when (resp.code) {
+                    401 -> LlmException.InvalidApiKey()
+                    413 -> LlmException.FileTooLarge()
+                    429 -> LlmException.RateLimited()
+                    else -> LlmException.Unknown(RuntimeException("HTTP ${resp.code} at $baseUrl/chat/completions: $respBody"))
+                }
+            }
+            // 简单提取 content
+            val obj = moshi.adapter(Map::class.java).fromJson(respBody) as? Map<*, *>
+            @Suppress("UNCHECKED_CAST")
+            val choices = obj?.get("choices") as? List<Map<String, Any?>>
+            val first = choices?.firstOrNull()
+            val message = first?.get("message") as? Map<String, Any?>
+            (message?.get("content") as? String) ?: respBody.take(200)
+        }
+    }
+
     private suspend fun executeStream(req: Request): Flow<LlmEvent> = flow {
+        Log.d("GijiMemoLLM", "POST ${req.url}")
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) {
                 val errBody = resp.body?.string().orEmpty()
@@ -136,7 +176,7 @@ class OpenAiCompatibleClient @Inject constructor(
                     401 -> LlmException.InvalidApiKey()
                     413 -> LlmException.FileTooLarge()
                     429 -> LlmException.RateLimited()
-                    else -> LlmException.Unknown(RuntimeException("HTTP ${resp.code}: $errBody"))
+                    else -> LlmException.Unknown(RuntimeException("HTTP ${resp.code} at ${req.url}: $errBody"))
                 }
             }
             val source = resp.body?.source() ?: throw LlmException.Unknown(RuntimeException("Empty body"))

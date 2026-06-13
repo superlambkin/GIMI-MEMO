@@ -42,9 +42,13 @@ private class WrappedLlmClient(
         prompt: String,
         mode: LlmCallMode
     ): Flow<LlmEvent> {
-        val effectiveMode = if (mode == LlmCallMode.MULTIMODAL && !config.supportsMultimodal) {
-            LlmCallMode.WHISPER_THEN_SUMMARY
-        } else mode
+        // Auto-fallback: MiniMax / ClaudeProxy 不支持 Whisper 端点 (/audio/transcriptions 返 404)
+        // 当用户选择 WHISPER 但 provider 支持多模态时，强制改用 MULTIMODAL
+        val effectiveMode = when {
+            mode == LlmCallMode.MULTIMODAL && !config.supportsMultimodal -> LlmCallMode.WHISPER_THEN_SUMMARY
+            mode == LlmCallMode.WHISPER_THEN_SUMMARY && config.supportsMultimodal -> LlmCallMode.MULTIMODAL
+            else -> mode
+        }
         val options = LlmOptions(
             baseUrl = config.baseUrl,
             apiKey = apiKey,
@@ -56,5 +60,9 @@ private class WrappedLlmClient(
             prompt = prompt
         )
         return delegate.transcribeAndFormat(audioFile, options)
+    }
+
+    override suspend fun testConnection(): String {
+        return delegate.testConnection(baseUrl = config.baseUrl, apiKey = apiKey, model = modelOverride ?: config.defaultModel)
     }
 }

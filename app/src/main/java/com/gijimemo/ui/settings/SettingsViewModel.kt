@@ -5,23 +5,28 @@ import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.repository.SettingsRepository
+import com.gijimemo.llm.LlmClient
+import com.gijimemo.llm.LlmProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settings: SettingsRepository
+    private val settings: SettingsRepository,
+    private val llmProvider: LlmProvider
 ) : ViewModel() {
 
     val providers: List<LlmProviderConfig> = settings.defaultProviders()
@@ -56,6 +61,21 @@ class SettingsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    /** API 接続テストの状態: Idle / Running / Success(text) / Error(message) */
+    sealed class ApiTestState {
+        object Idle : ApiTestState()
+        object Running : ApiTestState()
+        data class Success(val response: String) : ApiTestState()
+        data class Error(val message: String) : ApiTestState()
+    }
+
+    private val _apiTestState = MutableStateFlow<ApiTestState>(ApiTestState.Idle)
+    val apiTestState: StateFlow<ApiTestState> = _apiTestState.asStateFlow()
+
+    fun dismissApiTest() {
+        _apiTestState.value = ApiTestState.Idle
+    }
+
     init {
         viewModelScope.launch {
             _selectedProviderName.value = settings.selectedProvider().name
@@ -89,5 +109,30 @@ class SettingsViewModel @Inject constructor(
     fun supportedModels(): List<String> {
         val name = _selectedProviderName.value ?: return emptyList()
         return providers.firstOrNull { it.name == name }?.supportedModels ?: emptyList()
+    }
+
+    /**
+     * 接続テスト: 選択中の provider / API Key / model で短い chat completion を呼び出し結果を返す。
+     * ApiTestState が Idle→Running→Success/Error に遷移する。
+     */
+    fun testApi() {
+        val name = _selectedProviderName.value ?: return
+        val config = providers.firstOrNull { it.name == name } ?: return
+        val apiKey = settings.getApiKey(config.apiKeyRef)?.trim().orEmpty()
+        if (apiKey.isEmpty()) {
+            _apiTestState.value = ApiTestState.Error("API Key が未設定です")
+            return
+        }
+        val model = runBlocking { settings.modelForProvider(name).first() }?.takeIf { it.isNotBlank() } ?: config.defaultModel
+        _apiTestState.value = ApiTestState.Running
+        viewModelScope.launch {
+            try {
+                val client: LlmClient = llmProvider.createClient(config, apiKey, model)
+                val response = client.testConnection()
+                _apiTestState.value = ApiTestState.Success(response.take(300))
+            } catch (e: Exception) {
+                _apiTestState.value = ApiTestState.Error(e.message ?: e::class.java.simpleName)
+            }
+        }
     }
 }
