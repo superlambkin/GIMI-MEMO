@@ -40,7 +40,7 @@ class EmailShareServiceTest {
     @Test
     fun `buildIntent with single attachment creates ACTION_SEND intent`() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<Context>()
-        service = EmailShareService(context, "test.authority")
+        service = EmailShareService(context)
 
         val intent = service.buildIntent(
             attachments = listOf(File("test.txt")),
@@ -60,7 +60,7 @@ class EmailShareServiceTest {
     @Test
     fun `buildIntent with multiple attachments creates ACTION_SEND_MULTIPLE intent`() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<Context>()
-        service = EmailShareService(context, "test.authority")
+        service = EmailShareService(context)
 
         val intent = service.buildIntent(
             attachments = listOf(File("test1.txt"), File("test2.txt")),
