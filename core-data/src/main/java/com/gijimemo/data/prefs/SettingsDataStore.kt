@@ -21,7 +21,7 @@ class SettingsDataStore(private val context: Context) {
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyPromptTemplate = stringPreferencesKey("prompt_template")
 
-    val defaultProvider: Flow<String> = context.dataStore.data.map { it[keyProvider] ?: "MiniMax" }
+    val defaultProvider: Flow<String> = context.dataStore.data.map { it[keyProvider] ?: "MiniMax 国内" }
     val defaultModel: Flow<String> = context.dataStore.data.map { it[keyModel] ?: "MiniMax-M3" }
     val defaultCallMode: Flow<LlmCallMode> = context.dataStore.data.map {
         LlmCallMode.valueOf(it[keyCallMode] ?: LlmCallMode.MULTIMODAL.name)

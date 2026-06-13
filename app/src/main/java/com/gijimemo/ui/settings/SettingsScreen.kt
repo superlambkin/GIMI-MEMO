@@ -64,6 +64,13 @@ fun SettingsScreen(
         // Current Provider API Key input
         val currentProvider = viewModel.providers.firstOrNull { it.name == selected }
         if (currentProvider != null) {
+            if (currentProvider.baseUrl.isNotBlank()) {
+                Text(
+                    text = "Endpoint: ${currentProvider.baseUrl}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             var key by remember { mutableStateOf(viewModel.getApiKey(currentProvider.apiKeyRef) ?: "") }
             OutlinedTextField(
                 value = key,

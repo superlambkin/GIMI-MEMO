@@ -24,8 +24,8 @@ class SettingsDataStoreTest {
     }
 
     @Test
-    fun `default provider is MiniMax`() = runTest {
-        assertThat(store.defaultProvider.first()).isEqualTo("MiniMax")
+    fun `default provider is MiniMax CN`() = runTest {
+        assertThat(store.defaultProvider.first()).isEqualTo("MiniMax 国内")
     }
 
     @Test

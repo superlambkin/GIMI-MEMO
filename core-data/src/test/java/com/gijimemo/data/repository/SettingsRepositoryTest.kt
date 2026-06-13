@@ -20,9 +20,9 @@ class SettingsRepositoryTest {
     private val repo = SettingsRepository(store, encryptedPrefs)
 
     @Test
-    fun `defaultProviders returns 5`() {
+    fun `defaultProviders returns 6`() {
         val list = repo.defaultProviders()
-        assertThat(list).hasSize(5)
+        assertThat(list).hasSize(6)
     }
 
     @Test
@@ -30,19 +30,19 @@ class SettingsRepositoryTest {
         every { store.defaultProvider } returns flowOf("CustomName")
         val p = repo.selectedProvider()
         // Falls back to first default
-        assertThat(p.name).isEqualTo("MiniMax")
+        assertThat(p.name).isEqualTo("MiniMax 国内")
     }
 
     @Test
     fun `getApiKey delegates to EncryptedPrefs`() {
-        every { encryptedPrefs.getApiKey("apikey_MiniMax") } returns "key-1"
-        assertThat(repo.getApiKey("apikey_MiniMax")).isEqualTo("key-1")
+        every { encryptedPrefs.getApiKey("apikey_minimax_cn") } returns "key-1"
+        assertThat(repo.getApiKey("apikey_minimax_cn")).isEqualTo("key-1")
     }
 
     @Test
     fun `setApiKey delegates to EncryptedPrefs`() {
-        repo.setApiKey("apikey_MiniMax", "k")
-        coVerify { encryptedPrefs.putApiKey("apikey_MiniMax", "k") }
+        repo.setApiKey("apikey_minimax_cn", "k")
+        coVerify { encryptedPrefs.putApiKey("apikey_minimax_cn", "k") }
     }
 
     @Test

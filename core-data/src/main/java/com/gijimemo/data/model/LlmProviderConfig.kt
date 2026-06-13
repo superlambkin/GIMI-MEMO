@@ -11,12 +11,20 @@ data class LlmProviderConfig(
     companion object {
         fun defaults(): List<LlmProviderConfig> = listOf(
             LlmProviderConfig(
-                name = "MiniMax",
-                baseUrl = "https://api.MiniMax.com/v1",
+                name = "MiniMax 国内",
+                baseUrl = "https://api.minimaxi.com/v1",
                 defaultModel = "MiniMax-M3",
                 supportedModels = listOf("MiniMax-M3", "MiniMax-Text-01", "MiniMax-VL-01"),
                 supportsMultimodal = true,
-                apiKeyRef = "apikey_MiniMax"
+                apiKeyRef = "apikey_minimax_cn"
+            ),
+            LlmProviderConfig(
+                name = "MiniMax 海外",
+                baseUrl = "https://api.minimax.io/v1",
+                defaultModel = "MiniMax-M3",
+                supportedModels = listOf("MiniMax-M3", "MiniMax-Text-01", "MiniMax-VL-01"),
+                supportsMultimodal = true,
+                apiKeyRef = "apikey_minimax_overseas"
             ),
             LlmProviderConfig(
                 name = "OpenAI",
