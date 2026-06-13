@@ -1,0 +1,4 @@
+<!-- res/values/themes.xml -->
+<resources>
+    <style name="Theme.GijiMemo" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
