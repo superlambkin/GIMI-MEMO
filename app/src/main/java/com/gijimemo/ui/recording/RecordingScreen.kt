@@ -5,10 +5,16 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -101,7 +107,13 @@ fun RecordingScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
         if (!hasPermission) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("マイクの許可が必要です")
@@ -110,36 +122,56 @@ fun RecordingScreen(
                 }
             }
         } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
                 Text(text = "ステータス：${state.label()}", fontSize = 20.sp)
-                Text(text = formatDuration(elapsedMs), fontSize = 32.sp)
+                Text(text = formatDuration(elapsedMs), fontSize = 36.sp)
 
-                // 音声可視化ウィンドウ
+                // 音声可視化ウィンドウ（画面中央、大きめ）
                 AmplitudeVisualizer(
                     buffer = amplitudeBuffer,
                     isActive = state == RecordingState.Recording,
                     isPaused = state == RecordingState.Paused,
-                    modifier = Modifier.size(180.dp)
+                    modifier = Modifier.size(280.dp)
                 )
 
                 when (state) {
                     RecordingState.Idle, RecordingState.Stopped -> {
-                        Button(onClick = {
-                            elapsedMs = 0L
-                            viewModel.startRecording()
-                        }) {
+                        Button(
+                            onClick = {
+                                elapsedMs = 0L
+                                viewModel.startRecording()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                        ) {
                             Icon(Icons.Filled.Mic, contentDescription = null)
-                            Text(" 録音開始")
+                            Text(" 録音開始", fontSize = 18.sp)
                         }
                     }
                     RecordingState.Recording -> {
-                        IconButton(onClick = { viewModel.pauseRecording() }) {
-                            Icon(Icons.Filled.Pause, contentDescription = "一時停止", modifier = Modifier.size(48.dp))
+                        Button(
+                            onClick = { viewModel.pauseRecording() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                        ) {
+                            Icon(Icons.Filled.Pause, contentDescription = null)
+                            Text(" 一時停止", fontSize = 18.sp)
                         }
                     }
                     RecordingState.Paused -> {
-                        IconButton(onClick = { viewModel.resumeRecording() }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "再開", modifier = Modifier.size(48.dp))
+                        Button(
+                            onClick = { viewModel.resumeRecording() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Text(" 再開", fontSize = 18.sp)
                         }
                     }
                     is RecordingState.Error -> {
@@ -150,31 +182,51 @@ fun RecordingScreen(
                     }
                 }
 
-                // 「停止」：録音を止めるだけ（ページ遷移なし）。Stopped 状態になる。
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val session = viewModel.stopRecording(
-                                title = "会議 ${System.currentTimeMillis()}",
-                                durationMs = elapsedMs
-                            )
-                            lastSavedSessionId = session?.id
-                        }
-                    },
-                    enabled = state == RecordingState.Recording || state == RecordingState.Paused
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // 下部操作：停止 / 改文字 / キャンセル（横並び、操作しやすく）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Filled.Stop, contentDescription = null)
-                    Text(" 停止")
-                }
-                // 「改文字（文字起こし）」：Stopped 状態のときに有効。押下で処理画面へ遷移。
-                Button(
-                    onClick = { lastSavedSessionId?.let { onTranscribe(it) } },
-                    enabled = state == RecordingState.Stopped && lastSavedSessionId != null
-                ) {
-                    Text("改文字")
-                }
-                Button(onClick = onCancel) {
-                    Text("キャンセル")
+                    // 「停止」：録音を止めるだけ（ページ遷移なし）。Stopped 状態になる。
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val session = viewModel.stopRecording(
+                                    title = "会議 ${System.currentTimeMillis()}",
+                                    durationMs = elapsedMs
+                                )
+                                lastSavedSessionId = session?.id
+                            }
+                        },
+                        enabled = state == RecordingState.Recording || state == RecordingState.Paused,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
+                    ) {
+                        Icon(Icons.Filled.Stop, contentDescription = null)
+                        Text(" 停止", fontSize = 16.sp)
+                    }
+                    // 「改文字（文字起こし）」：Stopped 状態のときに有効。押下で処理画面へ遷移。
+                    Button(
+                        onClick = { lastSavedSessionId?.let { onTranscribe(it) } },
+                        enabled = state == RecordingState.Stopped && lastSavedSessionId != null,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
+                    ) {
+                        Text("改文字", fontSize = 16.sp)
+                    }
+                    // 「キャンセル」：画面を閉じる
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
+                    ) {
+                        Text("キャンセル", fontSize = 16.sp)
+                    }
                 }
             }
         }
