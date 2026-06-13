@@ -3,8 +3,11 @@ package com.gijimemo.document
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import java.io.File
 import java.io.FileOutputStream
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class WordDocumentGenerator {
+@Singleton
+class WordDocumentGenerator @Inject constructor() {
 
     fun generate(markdown: String, title: String, outputFile: File): Result<File> {
         return runCatching {

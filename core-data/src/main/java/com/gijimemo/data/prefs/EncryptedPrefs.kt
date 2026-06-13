@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
 interface SecurePrefs {
     fun putApiKey(ref: String, key: String)
@@ -11,7 +14,10 @@ interface SecurePrefs {
     fun removeApiKey(ref: String)
 }
 
-class EncryptedPrefs(context: Context) : SecurePrefs {
+@Singleton
+class EncryptedPrefs @Inject constructor(
+    @ApplicationContext context: Context
+) : SecurePrefs {
     private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
         context,
         "encrypted_prefs",

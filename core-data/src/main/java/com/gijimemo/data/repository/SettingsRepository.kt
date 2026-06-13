@@ -3,7 +3,7 @@ package com.gijimemo.data.repository
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.model.findByName
-import com.gijimemo.data.prefs.SecurePrefs
+import com.gijimemo.data.prefs.EncryptedPrefs
 import com.gijimemo.data.prefs.SettingsDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -14,7 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class SettingsRepository @Inject constructor(
     private val store: SettingsDataStore,
-    private val securePrefs: SecurePrefs
+    private val encryptedPrefs: EncryptedPrefs
 ) {
     fun defaultProviders(): List<LlmProviderConfig> = LlmProviderConfig.defaults()
 
@@ -28,8 +28,8 @@ class SettingsRepository @Inject constructor(
             defaultProviders().findByName(name) ?: defaultProviders().first()
         }
 
-    fun getApiKey(ref: String): String? = securePrefs.getApiKey(ref)
-    fun setApiKey(ref: String, key: String) = securePrefs.putApiKey(ref, key)
+    fun getApiKey(ref: String): String? = encryptedPrefs.getApiKey(ref)
+    fun setApiKey(ref: String, key: String) = encryptedPrefs.putApiKey(ref, key)
 
     val defaultCallMode get() = store.defaultCallMode
     val defaultChunkMinutes get() = store.defaultChunkMinutes
@@ -37,6 +37,8 @@ class SettingsRepository @Inject constructor(
     val defaultFormatPriority get() = store.defaultFormatPriority
     val defaultThemeMode get() = store.defaultThemeMode
     val defaultPromptTemplate get() = store.defaultPromptTemplate
+
+    suspend fun setDefaultProvider(v: String) = store.setDefaultProvider(v)
 
     suspend fun setDefaultCallMode(v: LlmCallMode) = store.setDefaultCallMode(v)
     suspend fun setDefaultChunkMinutes(v: Int) = store.setDefaultChunkMinutes(v)

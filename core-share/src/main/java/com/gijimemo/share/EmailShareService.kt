@@ -3,12 +3,16 @@ package com.gijimemo.share
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class EmailShareService(
-    private val context: Context,
-    private val fileProviderAuthority: String
+@Singleton
+class EmailShareService @Inject constructor(
+    @ApplicationContext private val context: Context
 ) {
+    private val fileProviderAuthority: String = "${context.packageName}.fileprovider"
 
     fun buildIntent(
         attachments: List<File>,

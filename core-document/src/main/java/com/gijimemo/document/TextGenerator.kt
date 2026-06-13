@@ -1,8 +1,11 @@
 package com.gijimemo.document
 
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class TextGenerator {
+@Singleton
+class TextGenerator @Inject constructor() {
 
     fun generate(transcript: String, file: File): File {
         val text = transcript

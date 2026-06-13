@@ -3,7 +3,7 @@ package com.gijimemo.data.repository
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.model.findByName
-import com.gijimemo.data.prefs.SecurePrefs
+import com.gijimemo.data.prefs.EncryptedPrefs
 import com.gijimemo.data.prefs.SettingsDataStore
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
@@ -16,8 +16,8 @@ import org.junit.Test
 
 class SettingsRepositoryTest {
     private val store: SettingsDataStore = mockk(relaxed = true)
-    private val securePrefs: SecurePrefs = mockk(relaxed = true)
-    private val repo = SettingsRepository(store, securePrefs)
+    private val encryptedPrefs: EncryptedPrefs = mockk(relaxed = true)
+    private val repo = SettingsRepository(store, encryptedPrefs)
 
     @Test
     fun `defaultProviders returns 5`() {
@@ -34,15 +34,15 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `getApiKey delegates to SecurePrefs`() {
-        every { securePrefs.getApiKey("apikey_MiniMax") } returns "key-1"
+    fun `getApiKey delegates to EncryptedPrefs`() {
+        every { encryptedPrefs.getApiKey("apikey_MiniMax") } returns "key-1"
         assertThat(repo.getApiKey("apikey_MiniMax")).isEqualTo("key-1")
     }
 
     @Test
-    fun `setApiKey delegates to SecurePrefs`() {
+    fun `setApiKey delegates to EncryptedPrefs`() {
         repo.setApiKey("apikey_MiniMax", "k")
-        coVerify { securePrefs.putApiKey("apikey_MiniMax", "k") }
+        coVerify { encryptedPrefs.putApiKey("apikey_MiniMax", "k") }
     }
 
     @Test
