@@ -1,11 +1,6 @@
 package com.gijimemo.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -13,6 +8,7 @@ import androidx.navigation.compose.rememberNavController
 import com.gijimemo.ui.home.HomeScreen
 import com.gijimemo.ui.processing.ProcessingScreen
 import com.gijimemo.ui.preview.PreviewScreen
+import com.gijimemo.ui.preview.SessionDetailScreen
 import com.gijimemo.ui.recording.RecordingScreen
 import com.gijimemo.ui.settings.SettingsScreen
 
@@ -60,19 +56,13 @@ fun GijiMemoNavHost(navController: NavHostController = rememberNavController()) 
             )
         }
         composable(Routes.SESSION) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Session Detail TODO")
-            }
+            SessionDetailScreen(
+                defaultRecipient = "",
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(onBack = { navController.popBackStack() })
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(label: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = label)
     }
 }
