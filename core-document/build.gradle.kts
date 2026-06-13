@@ -20,7 +20,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.poi.ooxml.full)
+    implementation(libs.poi.ooxml)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 
