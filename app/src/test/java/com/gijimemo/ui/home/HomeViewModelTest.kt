@@ -1,9 +1,11 @@
 package com.gijimemo.ui.home
 
+import android.content.Context
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.data.repository.SessionRepository
 import com.google.common.truth.Truth.assertThat
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -17,10 +19,12 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
     private val repo: SessionRepository = mockk()
+    private val context: Context = mockk(relaxed = true)
     private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -32,6 +36,9 @@ class HomeViewModelTest {
                 Session("2", "B", 200L, 0L, "b.mp3", 0L, SessionStatus.SHARED)
             )
         )
+        val tmpDir = System.getProperty("java.io.tmpdir")
+        every { context.filesDir } returns File(tmpDir)
+        coEvery { repo.save(any()) } returns Unit
     }
 
     @After
@@ -39,7 +46,7 @@ class HomeViewModelTest {
 
     @Test
     fun `sessions state contains all sessions`() = runTest {
-        val vm = HomeViewModel(repo)
+        val vm = HomeViewModel(repo, context)
         val sessions = vm.sessions.first()
         assertThat(sessions).hasSize(2)
     }

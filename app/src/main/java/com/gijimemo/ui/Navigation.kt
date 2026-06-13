@@ -31,6 +31,7 @@ fun GijiMemoNavHost(navController: NavHostController = rememberNavController()) 
         composable(Routes.HOME) {
             HomeScreen(
                 onNewRecording = { navController.navigate(Routes.RECORDING) },
+                onSessionImported = { id -> navController.navigate(Routes.processing(id)) },
                 onSessionClick = { id -> navController.navigate(Routes.session(id)) },
                 onSettings = { navController.navigate(Routes.SETTINGS) }
             )
