@@ -578,9 +578,13 @@ A: （回答）
         }
         // 要約種類に応じて追加指示を prompt に付与
         val typeInstruction = summaryTypeInstruction(type, maxChars)
-        val fullPrompt = cachedPrompt + typeInstruction
+        // 録音日時情報を付加
+        val dateStr = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(processingStartMs.coerceAtLeast(1L)))
+        val datePrefix = "\n\n---\n録音日時: $dateStr\n---\n"
+        val fullPrompt = cachedPrompt + typeInstruction + datePrefix
 
-        Log.d(tag, "Summarize: type=$type maxChars=$maxChars")
+        Log.d(tag, "Summarize: type=$type maxChars=$maxChars date=$dateStr")
 
         viewModelScope.launch {
             _state.value = _state.value.copy(
