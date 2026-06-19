@@ -233,6 +233,42 @@ class SessionDetailViewModel @Inject constructor(
         return regex.find(markdown)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
+    // ─── 再要約 ─────────────────────────────────────────
+    var isResummarizing by mutableStateOf(false); private set
+    fun resummarize() {
+        val text = _state.value.markdown
+        if (text.isBlank()) return
+        isResummarizing = true
+        _state.value = _state.value.copy(error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val config = settings.selectedProvider()
+                val apiKey = settings.getApiKey(config.apiKeyRef) ?: error("API Key not set")
+                val model = settings.modelForProvider(config.name).first() ?: config.defaultModel
+                val client = llmProvider.createClient(config, apiKey, model)
+                val sb = StringBuilder()
+                client.summarizeOnly(text, "以下の文章を再度要約してください。Markdown形式で見やすく構造化し、感想・考察を含めてください。\n\n$text").collect { event ->
+                    when (event) {
+                        is LlmEvent.Delta -> sb.append(event.text)
+                        is LlmEvent.Complete -> {
+                            val result = sb.toString().ifEmpty { event.fullText }
+                            val session = _state.value.session ?: return@collect
+                            _state.value = _state.value.copy(markdown = result)
+                            ensureDocuments(session, result)
+                            isResummarizing = false
+                        }
+                        is LlmEvent.Error -> throw event.cause
+                        else -> {}
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "再要約失敗: ${e.message}", e)
+                _state.value = _state.value.copy(error = "再要約失敗: ${e.message}")
+                isResummarizing = false
+            }
+        }
+    }
+
     private suspend fun ensureDocuments(session: Session, markdown: String) {
         withContext(Dispatchers.IO) {
             val docsDir = File(context.filesDir, "docs").apply { mkdirs() }

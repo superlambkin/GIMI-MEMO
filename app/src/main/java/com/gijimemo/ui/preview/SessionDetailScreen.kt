@@ -297,7 +297,19 @@ fun SessionDetailScreen(
                 }
             }
 
-            // 下段ボタン行: メールで共有 / 戻る / 削除（同色背景）
+            // 再要約（独立行）
+            if (state.markdown.isNotBlank()) {
+                OutlinedButton(
+                    onClick = { viewModel.resummarize() },
+                    enabled = !viewModel.isResummarizing,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                ) {
+                    Text(if (viewModel.isResummarizing) "再要約中..." else "TXTから再要約", fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // 下段ボタン行: 共有 / 戻る / 削除（同色背景）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
