@@ -1,57 +1,141 @@
-# GijiMemo
+# GijiMemo（ギジメモ）— AI 議事録自動作成アプリ
 
-Android 会议纪要 App。录音 MP3 → LLM 转写/格式化 → 输出 Word/MD/TXT → 调系统邮件 App 发送。
+音声録音 / インポート → AI文字起こし → 要約 → Word/MD/TXT出力 → メール共有まで、一貫して行う Android アプリ。
 
-## 技术栈
+![version](https://img.shields.io/badge/version-0.5.0-blue)
+![platform](https://img.shields.io/badge/platform-Android-lightgrey)
+![kotlin](https://img.shields.io/badge/kotlin-1.9.24-purple)
 
-Kotlin · Jetpack Compose · Hilt · Room · Apache POI · Coroutines/Flow · OkHttp
+---
 
-## 模块结构
+## 🎯 特徴
 
-- `:app` — UI 屏幕
-- `:core-audio` — 录音
-- `:core-llm` — LLM 客户端（OpenAI 兼容）
-- `:core-document` — Word/MD/TXT 生成
-- `:core-share` — 邮件分享
-- `:core-data` — Room + DataStore + EncryptedPrefs
+| 機能 | 説明 |
+|------|------|
+| **AI文字起こし** | OpenAI Whisper API で高精度音声認識（日本語・中国語対応） |
+| **自動要約** | 6種類のテンプレートから選択し AI が構造化議事録を生成 |
+| **Word文書出力** | Apache POI で見やすい Word（.docx）を自動作成 |
+| **メール共有** | docx + md + txt をメーラーでワンタップ送信 |
+| **画面オフ対策** | ForegroundService + WakeLock で長時間処理も安定 |
+| **日本語音声読み上げ** | Android TTS で内容を音声再生、位置ハイライト表示 |
+| **無印良品風UI** | オフホワイト × Muji Red のミニマルデザイン |
+| **分割文字起こし** | 25MB超えのファイルも自動分割して処理 |
+| **履歴予測** | 過去の処理時間を記録し次回の所要時間を予測表示 |
 
-## 开发
+## 📋 6つの要約テンプレート
 
-### 前置要求
+| 種類 | 出力構成 |
+|------|---------|
+| 📝 **議事録** | 会議概要 / 議題と討論 / 決定事項 / アクション / 所感 |
+| 🎤 **講演会** | 講演会概要 / 講演内容 / 要点まとめ / 感想・考察 |
+| 📚 **授業** | 授業概要 / 授業内容 / 板書・資料 / 質疑応答 / 感想・考察 |
+| 🎙 **取材** | 取材概要 / Q&A / ポイント整理 / 感想・考察 |
+| 💬 **雑談** | 話題一覧 / 会話内容 / 気づき・発見 / 感想・考察 |
+| 🔍 **DR** | DR概要 / 指摘事項 / 要対策項目 / 決定事項 / 所感 |
 
-- JDK 21（Gradle 8.5 不支持 Java 26+）
-  ```bash
-  export JAVA_HOME="/c/Program Files/Java/jdk-21.0.11"   # Git Bash
-  set JAVA_HOME=C:\Program Files\Java\jdk-21.0.11         # Windows CMD
-  ```
-- Android SDK（ANDROID_HOME 环境变量）
-  ```bash
-  export ANDROID_HOME="C:/Users/superlambkin/AppData/Local/Android/Sdk"
-  ```
+## 🚀 処理フロー
 
-### 常用命令
-
-```bash
-./gradlew assembleDebug    # 构建 Debug APK
-./gradlew assembleRelease  # 构建 Release APK
-./gradlew test             # 运行所有单元测试
-./gradlew :app:installDebug # 安装到连接的设备
+```
+録音 / MP3・M4A インポート
+    ↓
+ForegroundService 起動（画面オフ対策 + WakeLock）
+    ↓
+ファイルサイズ 25MB以下？──→ YES → Whisper API 直接送信
+    ↓ NO
+M4A直接分割（MediaExtractor+MediaMuxer、デコード不要で高速）
+  └ MP3等はWAVデコードフォールバック
+    ↓
+分割チャンクを順次 Whisper API で文字起こし → 結果結合
+    ↓
+AI要約（選択テンプレートに従い構造化＋感想・考察含む）
+    ↓
+Word(.docx) / Markdown(.md) / TXT(.txt) 自動生成
+    ↓
+メール共有 / 画面表示 / TXT保存（Downloadフォルダ）
 ```
 
-## 文档
+## ⚡ パフォーマンス（38分音声ファイルの実測）
 
-设计文档和实施计划在 OB Vault：
-- 设计: `80_POC_Projects/POC_009_GijiMemo/02_设计文档/设计文档.md`
-- 计划: `80_POC_Projects/POC_009_GijiMemo/03_开发文档/实施计划.md`
+| 方式 | 分割/デコード | API xチャンク | 合計 |
+|------|:----------:|:----------:|:----:|
+| 旧：WAVデコード方式 | 216秒 | 116秒 | **332秒** |
+| 新：M4A直接分割方式 | 47秒 | 145秒 | **192秒（42%改善）** |
+| 💎 自前録音M4A想定 | 3秒 | 120秒 | **123秒（63%改善）** |
 
-## LLM 配置
+## 🛠 技術スタック
 
-首次使用需在 App 设置页配置：
-1. 选择 LLM 服务商（MiniMax / OpenAI / Claude 代理 / DeepSeek / Ollama）
-2. 填入对应 API Key
-3. 选默认模型
-4. 选调用模式（多模态 / Whisper+总结）
+| カテゴリ | 技術 |
+|---------|------|
+| 言語 | **Kotlin** |
+| UI | **Jetpack Compose + Material3** |
+| DI | **Hilt** |
+| DB | **Room** |
+| 設定 | **DataStore Preferences** |
+| 暗号化 | **EncryptedSharedPreferences** |
+| LLM通信 | **OkHttp + Moshi**（OpenAI互換API） |
+| 文書生成 | **Apache POI**（Word .docx） |
+| 音声認識 | OpenAI Whisper API / whisper.cpp |
+| 音声再生 | MediaPlayer + MediaCodec |
+| 読み上げ | Android TextToSpeech |
+| 非同期 | Coroutines + Flow |
 
-## 手动测试
+## 📁 モジュール構成
 
-参见 `docs/MANUAL_TEST_CHECKLIST.md`。
+```
+:app                  UI画面（Jetpack Compose Navigation）
+:core-audio          録音（MediaRecorder）
+:core-llm            LLMクライアント（OpenAI互換）
+:core-document       Word/MD/TXT文書生成
+:core-share          メール共有（Intent）
+:core-data           Room + DataStore + EncryptedPrefs
+:core-whisper        whisper.cpp JNI（端末内音声認識）
+```
+
+## 🔧 開発セットアップ
+
+### 前提条件
+
+- **JDK 21**（Gradle 8.5 は Java 26+ 非対応）
+  ```bash
+  export JAVA_HOME="/c/Program Files/Java/jdk-21.0.11"
+  ```
+- **Android SDK**（ANDROID_HOME 必須）
+  ```bash
+  export ANDROID_HOME="$LOCALAPPDATA/Android/Sdk"
+  ```
+
+### ビルド
+
+```bash
+./gradlew assembleDebug       # Debug APK
+./gradlew assembleRelease     # Release APK
+./gradlew test                # 単体テスト
+./gradlew :app:installDebug   # 端末インストール
+```
+
+## 📱 対応環境
+
+| 項目 | 対応 |
+|------|------|
+| Android | **API 26+**（Android 8.0〜） |
+| アーキテクチャ | ARM64 / x86_64 |
+| 権限 | 録音 / 通知 / ForegroundService / WakeLock |
+
+## ⚙️ 初回設定
+
+1. **設定 → API Key 一括管理** → OpenAI 他プロバイダの API Key を入力
+2. **設定 → サービス** → 要約に使う LLM プロバイダを選択
+3. **設定 → 読み上げ設定** → 話速・ピッチ・エンジンを調整（任意）
+4. **設定 → 文字起こし設定** → 分割サイズ・デコード有効/無効を調整（任意）
+
+## 🖼️ スクリーンショット
+
+| 録音画面 | 文字起こし中 | 要約結果 |
+|:--------:|:----------:|:--------:|
+| 波形可視化＋時間表示 | 円グラフ＋予測表示 | Word書式＋文字数 |
+
+> スクリーンショットは `docs/` またはプロジェクトルートの画像ファイルを参照
+
+---
+
+*GijiMemo - 会議を記録し、知識を活かす*
