@@ -15,11 +15,15 @@ import com.gijimemo.ui.GijiMemoNavHost
 import com.gijimemo.ui.startup.StartupSplash
 import com.gijimemo.ui.startup.StartupState
 import com.gijimemo.ui.startup.StartupViewModel
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.ui.theme.GijiMemoTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var settings: SettingsRepository
 
     private val startupViewModel: StartupViewModel by viewModels()
 
@@ -27,9 +31,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            GijiMemoTheme {
-                // Fix: activity-compose 1.9.0 不会自动注入 androidx.lifecycle.compose.LocalLifecycleOwner
-                // (在 1.9.1+ 修复), collectAsStateWithLifecycle 需要它才能工作
+            val themeMode by settings.themeMode.collectAsStateWithLifecycle(initialValue = 0)
+            GijiMemoTheme(themeMode = themeMode) {
                 CompositionLocalProvider(LocalLifecycleOwner provides this) {
                     val startupState by startupViewModel.state.collectAsStateWithLifecycle()
                     when (startupState) {

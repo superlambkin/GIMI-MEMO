@@ -120,7 +120,12 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     fun stopSpeaking() { tts?.stop(); isSpeaking = false; currentParagraphIndex = -1; pendingSpeak = null }
-    override fun onCleared() { super.onCleared(); tts?.stop(); tts?.shutdown(); tts = null }
+    override fun onCleared() {
+        super.onCleared()
+        stopAudio()
+        stopSpeaking()
+        tts?.shutdown()
+    }
 
     // ─── AI翻訳（中文→日本語） ──────────────────────────
     fun translateToJapanese() {

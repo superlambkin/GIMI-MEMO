@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ModelTraining
 import androidx.compose.material.icons.filled.Person
@@ -181,7 +182,24 @@ fun SettingsScreen(
             }
         }
 
-        // ─── ② 呼び出しモード ──────────────────────────
+        // ─── ② 表示モード ────────────────────────────
+        SettingsSectionCard(title = "表示モード", icon = { Icon(Icons.Filled.DisplaySettings, contentDescription = null) }) {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("テーマ", style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.weight(1f))
+                listOf(0 to "システム", 1 to "ライト", 2 to "ダーク").forEach { (mode, label) ->
+                    OutlinedButton(
+                        onClick = { viewModel.setThemeMode(mode) },
+                        modifier = Modifier.heightIn(min = 40.dp),
+                        enabled = themeMode != mode
+                    ) { Text(label, fontSize = 12.sp) }
+                    Spacer(Modifier.width(4.dp))
+                }
+            }
+        }
+
+        // ─── ③ 呼び出しモード ──────────────────────────
         SettingsSectionCard(title = "呼び出しモード", icon = { Icon(Icons.Filled.SwapHoriz, contentDescription = null) }) {
             SettingsLabel("現在：${callModeDisplay(callMode)}")
             Row(

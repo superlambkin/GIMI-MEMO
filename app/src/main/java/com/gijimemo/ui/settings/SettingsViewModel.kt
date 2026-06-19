@@ -48,6 +48,10 @@ class SettingsViewModel @Inject constructor(
     val decodeEnabled: StateFlow<Boolean> = settings.decodeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    val themeMode: StateFlow<Int> = settings.themeMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    fun setThemeMode(v: Int) = viewModelScope.launch { settings.setThemeMode(v) }
+
     val ttsSpeechRate: StateFlow<Float> = settings.ttsSpeechRate
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
     val ttsPitch: StateFlow<Float> = settings.ttsPitch

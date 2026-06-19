@@ -73,11 +73,19 @@ private val MujiDarkColorScheme = darkColorScheme(
     onError = DarkBackground
 )
 
+/**
+ * @param themeMode 0=システム追従, 1=ライト固定, 2=ダーク固定
+ */
 @Composable
 fun GijiMemoTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: Int = 0,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) MujiDarkColorScheme else MujiLightColorScheme
+    val isDark = when (themeMode) {
+        1 -> false
+        2 -> true
+        else -> isSystemInDarkTheme()
+    }
+    val colorScheme = if (isDark) MujiDarkColorScheme else MujiLightColorScheme
     MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

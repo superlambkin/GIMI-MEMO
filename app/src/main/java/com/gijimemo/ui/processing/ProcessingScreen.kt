@@ -239,7 +239,7 @@ private fun SummaryOptionsDialog(
                 }
 
                 // 最大文字数スライダー（100文字単位）
-                val maxVal = ((transcriptLength / 2) / 100 * 100).coerceIn(100, 50000)
+                val maxVal = (transcriptLength / 100 * 100).coerceIn(100, 50000)
                 val sliderVal = (maxCharsText.toIntOrNull() ?: defaultChars).toFloat()
                 Slider(
                     value = sliderVal,

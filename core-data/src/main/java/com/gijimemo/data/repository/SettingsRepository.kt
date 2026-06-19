@@ -78,6 +78,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setDecodeEnabled(v: Boolean) = store.setDecodeEnabled(v)
     val transcribePerfFactor get() = store.transcribePerfFactor
     suspend fun setTranscribePerfFactor(v: Float) = store.setTranscribePerfFactor(v)
+    val themeMode get() = store.themeMode
+    suspend fun setThemeMode(v: Int) = store.setThemeMode(v)
     val ttsSpeechRate get() = store.ttsSpeechRate
     val ttsPitch get() = store.ttsPitch
     suspend fun setTtsSpeechRate(v: Float) = store.setTtsSpeechRate(v)
@@ -89,7 +91,6 @@ class SettingsRepository @Inject constructor(
     val defaultRecipient get() = store.defaultRecipient
     val recipients get() = store.recipients
     val defaultFormatPriority get() = store.defaultFormatPriority
-    val defaultThemeMode get() = store.defaultThemeMode
     val defaultPromptTemplate get() = store.defaultPromptTemplate
 
     fun modelForProvider(providerName: String) = store.modelForProvider(providerName)
@@ -103,7 +104,6 @@ class SettingsRepository @Inject constructor(
     suspend fun addRecipient(email: String) = store.addRecipient(email)
     suspend fun removeRecipient(email: String) = store.removeRecipient(email)
     suspend fun setDefaultFormatPriority(v: String) = store.setDefaultFormatPriority(v)
-    suspend fun setDefaultThemeMode(v: String) = store.setDefaultThemeMode(v)
     suspend fun setDefaultPromptTemplate(v: String) = store.setDefaultPromptTemplate(v)
     fun templateForType(type: String) = store.templateForType(type)
     suspend fun setTemplateForType(type: String, value: String) = store.setTemplateForType(type, value)

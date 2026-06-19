@@ -20,7 +20,6 @@ class SettingsDataStore(private val context: Context) {
     private val keyChunkMinutes = intPreferencesKey("default_chunk_minutes")
     private val keyRecipients = stringPreferencesKey("recipient_list")
     private val keyFormatPriority = stringPreferencesKey("format_priority")
-    private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyPromptTemplate = stringPreferencesKey("prompt_template")
     private val keyMinutesTemplate = stringPreferencesKey("template_minutes")
     private val keyLectureTemplate = stringPreferencesKey("template_lecture")
@@ -33,6 +32,7 @@ class SettingsDataStore(private val context: Context) {
     private val keyAutoProvider = booleanPreferencesKey("auto_provider")
     private val keyDecodeEnabled = booleanPreferencesKey("decode_enabled")
     private val keyPerfFactor = floatPreferencesKey("transcribe_perf_factor")
+    private val keyThemeMode = intPreferencesKey("theme_mode")
     private val keyTtsRate = floatPreferencesKey("tts_speech_rate")
     private val keyTtsPitch = floatPreferencesKey("tts_pitch")
     private val keyTtsEngine = stringPreferencesKey("tts_engine")
@@ -52,7 +52,6 @@ class SettingsDataStore(private val context: Context) {
             ?: emptyList()
     }
     val defaultFormatPriority: Flow<String> = context.dataStore.data.map { it[keyFormatPriority] ?: "docx,md,txt" }
-    val defaultThemeMode: Flow<String> = context.dataStore.data.map { it[keyThemeMode] ?: "system" }
     val defaultPromptTemplate: Flow<String> = context.dataStore.data.map {
         it[keyPromptTemplate] ?: DEFAULT_PROMPT_TEMPLATE
     }
@@ -88,7 +87,6 @@ class SettingsDataStore(private val context: Context) {
         }
     }
     suspend fun setDefaultFormatPriority(v: String) = context.dataStore.edit { it[keyFormatPriority] = v }
-    suspend fun setDefaultThemeMode(v: String) = context.dataStore.edit { it[keyThemeMode] = v }
     suspend fun setDefaultPromptTemplate(v: String) = context.dataStore.edit { it[keyPromptTemplate] = v }
 
     // ─── 4種類の要約テンプレート ──────────────────────────
@@ -214,6 +212,10 @@ Q: （質問） A: （回答）
     /** パフォーマンス係数（秒/MB）— 次回の時間予測に使用 */
     val transcribePerfFactor: Flow<Float> = context.dataStore.data.map { it[keyPerfFactor] ?: 0f }
     suspend fun setTranscribePerfFactor(v: Float) = context.dataStore.edit { it[keyPerfFactor] = v }
+
+    // ─── テーマ設定 ────────────────────────────────────────────
+    val themeMode: Flow<Int> = context.dataStore.data.map { it[keyThemeMode] ?: 0 }
+    suspend fun setThemeMode(v: Int) = context.dataStore.edit { it[keyThemeMode] = v }
 
     // ─── TTS設定 ────────────────────────────────────────────
     val ttsSpeechRate: Flow<Float> = context.dataStore.data.map { it[keyTtsRate] ?: 1.0f }
