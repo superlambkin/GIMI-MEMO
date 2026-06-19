@@ -1,141 +1,246 @@
-# GijiMemo（ギジメモ）— AI 議事録自動作成アプリ
 
-音声録音 / インポート → AI文字起こし → 要約 → Word/MD/TXT出力 → メール共有まで、一貫して行う Android アプリ。
+<p align="center">
+  <img src="app/src/main/res/drawable/ic_launcher_foreground.png" width="100" alt="GijiMemo Logo"/>
+</p>
 
-![version](https://img.shields.io/badge/version-0.5.0-blue)
-![platform](https://img.shields.io/badge/platform-Android-lightgrey)
-![kotlin](https://img.shields.io/badge/kotlin-1.9.24-purple)
+<h1 align="center">GijiMemo（ギジメモ）</h1>
+
+<p align="center">
+  <b>AI Meeting Minutes Generator — AI 議事録自動作成 — AI 会议纪要生成</b>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.5.0-blue" alt="version"/>
+  <img src="https://img.shields.io/badge/platform-Android-lightgrey" alt="platform"/>
+  <img src="https://img.shields.io/badge/kotlin-1.9.24-purple" alt="kotlin"/>
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
+</p>
 
 ---
 
-## 🎯 特徴
+# 🇯🇵 日本語
 
-| 機能 | 説明 |
+## 📋 概要
+
+音声録音 / ファイルインポート → **AI文字起こし** → **自動要約** → **Word/MD/TXT出力** → **メール共有** まで一貫して行う Android アプリ。
+
+会議、講演会、授業、取材、雑談、デザインレビューなど、様々なシーンに対応する **6種類の要約テンプレート** を搭載。
+
+## ✨ 主な機能
+
+| 機能 | 詳細 |
 |------|------|
-| **AI文字起こし** | OpenAI Whisper API で高精度音声認識（日本語・中国語対応） |
-| **自動要約** | 6種類のテンプレートから選択し AI が構造化議事録を生成 |
-| **Word文書出力** | Apache POI で見やすい Word（.docx）を自動作成 |
-| **メール共有** | docx + md + txt をメーラーでワンタップ送信 |
-| **画面オフ対策** | ForegroundService + WakeLock で長時間処理も安定 |
-| **日本語音声読み上げ** | Android TTS で内容を音声再生、位置ハイライト表示 |
-| **無印良品風UI** | オフホワイト × Muji Red のミニマルデザイン |
-| **分割文字起こし** | 25MB超えのファイルも自動分割して処理 |
-| **履歴予測** | 過去の処理時間を記録し次回の所要時間を予測表示 |
-
-## 📋 6つの要約テンプレート
-
-| 種類 | 出力構成 |
-|------|---------|
-| 📝 **議事録** | 会議概要 / 議題と討論 / 決定事項 / アクション / 所感 |
-| 🎤 **講演会** | 講演会概要 / 講演内容 / 要点まとめ / 感想・考察 |
-| 📚 **授業** | 授業概要 / 授業内容 / 板書・資料 / 質疑応答 / 感想・考察 |
-| 🎙 **取材** | 取材概要 / Q&A / ポイント整理 / 感想・考察 |
-| 💬 **雑談** | 話題一覧 / 会話内容 / 気づき・発見 / 感想・考察 |
-| 🔍 **DR** | DR概要 / 指摘事項 / 要対策項目 / 決定事項 / 所感 |
+| 🎤 **AI文字起こし** | OpenAI Whisper API で高精度音声認識、日本語・中国語対応 |
+| 📝 **6種の要約テンプレート** | 議事録 / 講演会 / 授業 / 取材 / 雑談 / DR |
+| 📄 **Word文書生成** | Apache POI で見やすい .docx を自動作成 |
+| 📧 **メール共有** | docx + md + txt をワンタップでメーラー送信 |
+| 🔒 **画面オフ対策** | ForegroundService + WakeLock で安定稼働 |
+| 🔊 **日本語音声読み上げ** | TTS で内容読み上げ＋位置ハイライト |
+| 🎨 **無印良品風UI** | オフホワイト × Muji Red のミニマルデザイン |
+| ⚡ **高速分割処理** | 25MB超えファイルも M4A 直接分割で効率処理 |
+| 📊 **時間予測** | 過去の実績から所要時間を予測表示 |
 
 ## 🚀 処理フロー
 
 ```
 録音 / MP3・M4A インポート
     ↓
-ForegroundService 起動（画面オフ対策 + WakeLock）
+ForegroundService 起動（画面オフ対策）
     ↓
-ファイルサイズ 25MB以下？──→ YES → Whisper API 直接送信
+25MB以下？──→ YES → Whisper API 直接送信
     ↓ NO
-M4A直接分割（MediaExtractor+MediaMuxer、デコード不要で高速）
-  └ MP3等はWAVデコードフォールバック
+M4A直接分割（デコード不要、高速）
     ↓
-分割チャンクを順次 Whisper API で文字起こし → 結果結合
+Whisper API で文字起こし → 結果結合
     ↓
-AI要約（選択テンプレートに従い構造化＋感想・考察含む）
+AI要約（テンプレート選択 → 構造化出力）
     ↓
-Word(.docx) / Markdown(.md) / TXT(.txt) 自動生成
+Word(.docx) / Markdown(.md) / TXT(.txt) 生成
     ↓
-メール共有 / 画面表示 / TXT保存（Downloadフォルダ）
+メール共有 / 画面表示 / TXT保存
 ```
 
-## ⚡ パフォーマンス（38分音声ファイルの実測）
+## ⚙️ 初回設定
 
-| 方式 | 分割/デコード | API xチャンク | 合計 |
-|------|:----------:|:----------:|:----:|
-| 旧：WAVデコード方式 | 216秒 | 116秒 | **332秒** |
-| 新：M4A直接分割方式 | 47秒 | 145秒 | **192秒（42%改善）** |
-| 💎 自前録音M4A想定 | 3秒 | 120秒 | **123秒（63%改善）** |
+1. **設定 → API Key 一括管理** → OpenAI の API Key を入力
+2. **設定 → サービス** → 要約用 LLM プロバイダを選択
+3. 録音または音声ファイルをインポート → 文字起こし開始
 
-## 🛠 技術スタック
+---
 
-| カテゴリ | 技術 |
-|---------|------|
-| 言語 | **Kotlin** |
+# 🇬🇧 English
+
+## 📋 Overview
+
+**GijiMemo** is an Android app that automates meeting minutes creation from start to finish: **voice recording / file import → AI transcription → smart summarization → Word/MD/TXT export → email sharing**.
+
+Comes with **6 summary templates** for meetings, lectures, classes, interviews, casual chats, and design reviews.
+
+## ✨ Key Features
+
+| Feature | Description |
+|---------|-------------|
+| 🎤 **AI Transcription** | OpenAI Whisper API — high accuracy, supports Japanese & Chinese |
+| 📝 **6 Summary Templates** | Meeting / Lecture / Class / Interview / Chat / Design Review |
+| 📄 **Word Export** | Apache POI generates clean .docx automatically |
+| 📧 **Email Sharing** | One-tap send with docx + md + txt attachments |
+| 🔒 **Screen-off Resistant** | ForegroundService + WakeLock for long processing |
+| 🔊 **Japanese TTS** | Text-to-speech with real-time paragraph highlighting |
+| 🎨 **Muji-style UI** | Minimalist design with off-white × Muji Red |
+| ⚡ **Chunked Processing** | Files over 25MB auto-split via M4A direct splitting |
+| 📊 **Time Prediction** | Estimated duration based on historical performance |
+
+## 🚀 Processing Flow
+
+```
+Recording / MP3・M4A Import
+    ↓
+ForegroundService starts (screen-off protection)
+    ↓
+Under 25MB? ──→ YES → Send directly to Whisper API
+    ↓ NO
+M4A direct split (no decode, high speed)
+    ↓
+Whisper API transcription → Results merged
+    ↓
+AI summarization (template-based structured output)
+    ↓
+Word(.docx) / Markdown(.md) / TXT(.txt) generation
+    ↓
+Email sharing / On-screen display / TXT save
+```
+
+## ⚙️ First-time Setup
+
+1. **Settings → API Key Management** → Enter your OpenAI API Key
+2. **Settings → Service** → Select LLM provider for summarization
+3. Record or import an audio file → Start transcription
+
+---
+
+# 🇨🇳 中文
+
+## 📋 概述
+
+**GijiMemo** 是一款 Android 应用，实现从 **录音/导入 → AI 转写 → 智能总结 → Word/MD/TXT 导出 → 邮件分享** 的全流程会议纪要自动化。
+
+内置 **6 种总结模板**，适用于会议、演讲、课程、采访、讨论和设计评审等场景。
+
+## ✨ 主要功能
+
+| 功能 | 说明 |
+|------|------|
+| 🎤 **AI 语音转写** | 基于 OpenAI Whisper API，支持日语和中文 |
+| 📝 **6 种总结模板** | 会议 / 演讲 / 课程 / 采访 / 讨论 / 设计评审 |
+| 📄 **Word 文档生成** | 使用 Apache POI 自动生成格式清晰的 .docx |
+| 📧 **邮件分享** | 一键发送含 docx + md + txt 附件的邮件 |
+| 🔒 **屏幕关闭保护** | ForegroundService + WakeLock 确保稳定运行 |
+| 🔊 **日语朗读** | TTS 语音朗读，实时高亮当前位置 |
+| 🎨 **无印良品风格 UI** | 米白底色 × Muji 红的极简设计 |
+| ⚡ **文件分割处理** | 超过 25MB 的文件自动分割后处理 |
+| 📊 **时间预测** | 基于历史记录预估处理时间 |
+
+## 🚀 处理流程
+
+```
+录音 / MP3・M4A 导入
+    ↓
+启动 ForegroundService（防止屏幕关闭中断）
+    ↓
+小于 25MB？──→ 是 → 直接发送至 Whisper API
+    ↓ 否
+M4A 直接分割（无需解码，高速处理）
+    ↓
+Whisper API 转写 → 合并结果
+    ↓
+AI 总结（基于模板的结构化输出）
+    ↓
+生成 Word(.docx) / Markdown(.md) / TXT(.txt)
+    ↓
+邮件分享 / 屏幕显示 / TXT 保存
+```
+
+## ⚙️ 首次设置
+
+1. **设置 → API Key 管理** → 输入 OpenAI 的 API Key
+2. **设置 → 服务** → 选择用于总结的 LLM 提供商
+3. 录音或导入音频文件 → 开始转写
+
+---
+
+# 📊 Performance Benchmark
+
+**38-minute audio file实测:**
+
+| Method | Split/Decode | API × Chunks | Total |
+|--------|:----------:|:-----------:|:----:|
+| Old: WAV decode | 216s | 116s | **332s** |
+| New: M4A direct split | 47s | 145s | **192s (42% faster)** |
+| 💎 Native M4A (esti.) | 3s | 120s | **123s (63% faster)** |
+
+# 🛠 Tech Stack
+
+| Category | Technology |
+|----------|-----------|
+| Language | **Kotlin** |
 | UI | **Jetpack Compose + Material3** |
 | DI | **Hilt** |
-| DB | **Room** |
-| 設定 | **DataStore Preferences** |
-| 暗号化 | **EncryptedSharedPreferences** |
-| LLM通信 | **OkHttp + Moshi**（OpenAI互換API） |
-| 文書生成 | **Apache POI**（Word .docx） |
-| 音声認識 | OpenAI Whisper API / whisper.cpp |
-| 音声再生 | MediaPlayer + MediaCodec |
-| 読み上げ | Android TextToSpeech |
-| 非同期 | Coroutines + Flow |
+| Database | **Room** |
+| Preferences | **DataStore** |
+| Encryption | **EncryptedSharedPreferences** |
+| LLM Client | **OkHttp + Moshi** (OpenAI-compatible) |
+| Document | **Apache POI** (.docx) |
+| Speech API | OpenAI Whisper / whisper.cpp |
+| Audio Playback | MediaPlayer + MediaCodec |
+| TTS | Android TextToSpeech |
+| Async | Coroutines + Flow |
 
-## 📁 モジュール構成
+# 📁 Module Structure
 
 ```
-:app                  UI画面（Jetpack Compose Navigation）
-:core-audio          録音（MediaRecorder）
-:core-llm            LLMクライアント（OpenAI互換）
-:core-document       Word/MD/TXT文書生成
-:core-share          メール共有（Intent）
+:app                  UI (Jetpack Compose Navigation)
+:core-audio          Recording (MediaRecorder)
+:core-llm            LLM client (OpenAI-compatible)
+:core-document       Word/MD/TXT generation
+:core-share          Email sharing (Intent)
 :core-data           Room + DataStore + EncryptedPrefs
-:core-whisper        whisper.cpp JNI（端末内音声認識）
+:core-whisper        whisper.cpp JNI binding
 ```
 
-## 🔧 開発セットアップ
+# 🔧 Development Setup
 
-### 前提条件
+### Prerequisites
 
-- **JDK 21**（Gradle 8.5 は Java 26+ 非対応）
+- **JDK 21** (Gradle 8.5 does not support Java 26+)
   ```bash
   export JAVA_HOME="/c/Program Files/Java/jdk-21.0.11"
   ```
-- **Android SDK**（ANDROID_HOME 必須）
+- **Android SDK** (ANDROID_HOME required)
   ```bash
   export ANDROID_HOME="$LOCALAPPDATA/Android/Sdk"
   ```
 
-### ビルド
+### Build
 
 ```bash
 ./gradlew assembleDebug       # Debug APK
 ./gradlew assembleRelease     # Release APK
-./gradlew test                # 単体テスト
-./gradlew :app:installDebug   # 端末インストール
+./gradlew test                # Unit tests
+./gradlew :app:installDebug   # Install to device
 ```
 
-## 📱 対応環境
+# 📱 Requirements
 
-| 項目 | 対応 |
-|------|------|
-| Android | **API 26+**（Android 8.0〜） |
-| アーキテクチャ | ARM64 / x86_64 |
-| 権限 | 録音 / 通知 / ForegroundService / WakeLock |
-
-## ⚙️ 初回設定
-
-1. **設定 → API Key 一括管理** → OpenAI 他プロバイダの API Key を入力
-2. **設定 → サービス** → 要約に使う LLM プロバイダを選択
-3. **設定 → 読み上げ設定** → 話速・ピッチ・エンジンを調整（任意）
-4. **設定 → 文字起こし設定** → 分割サイズ・デコード有効/無効を調整（任意）
-
-## 🖼️ スクリーンショット
-
-| 録音画面 | 文字起こし中 | 要約結果 |
-|:--------:|:----------:|:--------:|
-| 波形可視化＋時間表示 | 円グラフ＋予測表示 | Word書式＋文字数 |
-
-> スクリーンショットは `docs/` またはプロジェクトルートの画像ファイルを参照
+| Item | Requirement |
+|------|-------------|
+| Android | **API 26+** (Android 8.0〜) |
+| Architecture | ARM64 / x86_64 |
+| Permissions | RECORD_AUDIO, POST_NOTIFICATIONS, FOREGROUND_SERVICE, WAKE_LOCK |
 
 ---
 
-*GijiMemo - 会議を記録し、知識を活かす*
+<p align="center">
+  <i>GijiMemo — Capture meetings, leverage knowledge</i><br>
+  <i>GijiMemo — 会議を記録し、知識を活かす</i><br>
+  <i>GijiMemo — 记录会议，活用知识</i>
+</p>
