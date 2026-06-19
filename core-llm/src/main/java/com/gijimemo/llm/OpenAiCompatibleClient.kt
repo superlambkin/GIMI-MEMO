@@ -1,9 +1,12 @@
 package com.gijimemo.llm
 
+import android.content.Context
 import android.util.Log
+import com.gijimemo.whisper.AudioDecoder
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -23,7 +26,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class OpenAiCompatibleClient @Inject constructor(
-    private val client: OkHttpClient
+    private val client: OkHttpClient,
+    @ApplicationContext private val context: Context
 ) {
     private val moshi = Moshi.Builder().build()
     private val mapAdapter: JsonAdapter<Map<String, Any>> =
@@ -37,6 +41,7 @@ class OpenAiCompatibleClient @Inject constructor(
         options: LlmOptions
     ): Flow<LlmEvent> = flow {
         try {
+            Log.d(TAG, "transcribeAndFormat start: mode=${options.callMode} model=${options.model} url=${options.baseUrl}")
             when (options.callMode) {
                 LlmOptions.CallMode.MULTIMODAL -> {
                     emitAllMultimodal(audioFile, options)
@@ -48,11 +53,15 @@ class OpenAiCompatibleClient @Inject constructor(
                 }
             }
         } catch (e: LlmException) {
+            Log.e(TAG, "LlmException: ${e::class.java.simpleName} msg=${e.message}", e)
             emit(LlmEvent.Error(e))
         } catch (e: Exception) {
+            Log.e(TAG, "Unexpected exception: ${e::class.java.simpleName} msg=${e.message}", e)
             emit(LlmEvent.Error(LlmException.Unknown(e)))
         }
     }
+
+    private val TAG = "GijiMemoLLM"
 
     // ─── MULTIMODAL ───────────────────────────────────────────
 
@@ -60,8 +69,25 @@ class OpenAiCompatibleClient @Inject constructor(
         audioFile: File,
         options: LlmOptions
     ) {
-        val base64Audio = withContext(Dispatchers.IO) {
-            Base64.getEncoder().encodeToString(audioFile.readBytes())
+        // OpenAI / MiniMax 系の input_audio は WAV (PCM 16bit) を期待する。
+        // 録音ファイルは AAC-in-MP4 (.m4a) なので AudioDecoder で WAV へ変換してから
+        // base64 化する。"mp4" を渡すと「音声ファイルが添付されていない」相当の
+        // 応答が返るプロバイダがある (Whisper.cpp が要求するのと同じ WAV 16kHz mono)。
+        val (base64Audio, format) = withContext(Dispatchers.IO) {
+            try {
+                val cacheDir = File(context.cacheDir, "multimodal_decoded").apply { mkdirs() }
+                val wavPath = AudioDecoder.decodeToWav(audioFile.absolutePath, cacheDir)
+                val wavFile = File(wavPath)
+                val b64 = Base64.getEncoder().encodeToString(wavFile.readBytes())
+                Log.d(TAG, "emitAllMultimodal: WAV converted ${audioFile.length()}B -> ${wavFile.length()}B")
+                wavFile.delete()
+                b64 to "wav"
+            } catch (e: Exception) {
+                // WAV 変換失敗時は元ファイル (mp4/m4a) をそのまま送る最終手段
+                Log.w(TAG, "WAV decode failed, falling back to raw mp4: ${e.message}")
+                val b64 = Base64.getEncoder().encodeToString(audioFile.readBytes())
+                b64 to "mp4"
+            }
         }
         val payload = mapOf(
             "model" to options.model,
@@ -76,7 +102,7 @@ class OpenAiCompatibleClient @Inject constructor(
                             "type" to "input_audio",
                             "input_audio" to mapOf(
                                 "data" to base64Audio,
-                                "format" to "mp4"
+                                "format" to format
                             )
                         )
                     )
@@ -127,6 +153,33 @@ class OpenAiCompatibleClient @Inject constructor(
         executeStream(req).collect { emit(it) }
     }
 
+    // ─── TRANSCRIBE ONLY (文字起こしのみ) ──────────────────
+
+    /**
+     * Whisper API で文字起こしのみ実行。要約は行わない。
+     */
+    suspend fun transcribeOnly(audioFile: File, options: LlmOptions): String {
+        Log.d(TAG, "transcribeOnly: ${audioFile.name} url=${options.baseUrl}")
+        return whisperTranscribe(audioFile, options)
+    }
+
+    // ─── SUMMARIZE ONLY (要約のみ) ─────────────────────────
+
+    /**
+     * 文字起こし済みテキストを LLM で要約する。ストリーミング Flow を返す。
+     */
+    fun summarizeOnly(text: String, options: LlmOptions): Flow<LlmEvent> = flow {
+        try {
+            emitAllChatCompletion(text, options)
+        } catch (e: LlmException) {
+            Log.e(TAG, "LlmException: ${e::class.java.simpleName} msg=${e.message}", e)
+            emit(LlmEvent.Error(e))
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected exception: ${e::class.java.simpleName} msg=${e.message}", e)
+            emit(LlmEvent.Error(LlmException.Unknown(e)))
+        }
+    }
+
     // ─── STREAM EXECUTION ────────────────────────────────────
 
     /**
@@ -168,27 +221,69 @@ class OpenAiCompatibleClient @Inject constructor(
     }
 
     private suspend fun executeStream(req: Request): Flow<LlmEvent> = flow {
-        Log.d("GijiMemoLLM", "POST ${req.url}")
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                val errBody = resp.body?.string().orEmpty()
-                throw when (resp.code) {
+        Log.d(TAG, "executeStream POST ${req.url} on=${Thread.currentThread().name}")
+        // 关键：OkHttp 的 execute() 是阻塞调用，必须跑在 IO 线程。
+        // viewModelScope 默认是 Main，不切线程会触发 NetworkOnMainThreadException。
+        val outcome: StreamOutcome = withContext(Dispatchers.IO) {
+            try {
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        val errBody = resp.body?.string().orEmpty()
+                        Log.e(TAG, "HTTP ${resp.code} ${req.url} body=$errBody")
+                        return@use StreamOutcome.HttpError(resp.code, errBody)
+                    }
+                    val source = resp.body?.source() ?: return@use StreamOutcome.EmptyBody
+                    val buffer = Buffer()
+                    source.readAll(buffer)
+                    val raw = buffer.readUtf8()
+                    Log.d(TAG, "Response first 200 chars: ${raw.take(200)}")
+                    if (raw.isBlank()) {
+                        Log.e(TAG, "Server returned empty string body at ${req.url}")
+                        return@use StreamOutcome.EmptyBody
+                    }
+                    StreamOutcome.Ok(raw)
+                }
+            } catch (e: LlmException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "executeStream IO error: ${e::class.java.simpleName} msg=${e.message}", e)
+                throw e
+            }
+        }
+        when (outcome) {
+            is StreamOutcome.HttpError -> {
+                val (code, body) = outcome.code to outcome.body
+                throw when (code) {
                     401 -> LlmException.InvalidApiKey()
                     413 -> LlmException.FileTooLarge()
                     429 -> LlmException.RateLimited()
-                    else -> LlmException.Unknown(RuntimeException("HTTP ${resp.code} at ${req.url}: $errBody"))
+                    else -> LlmException.Unknown(RuntimeException("HTTP $code at ${req.url}: $body"))
                 }
             }
-            val source = resp.body?.source() ?: throw LlmException.Unknown(RuntimeException("Empty body"))
-            val buffer = Buffer()
-            source.readAll(buffer)
-            val fullText = StringBuilder()
-            SseStreamParser.parse(buffer.readUtf8()).collect { delta ->
-                fullText.append(delta)
-                emit(LlmEvent.Delta(delta))
+            StreamOutcome.EmptyBody -> {
+                throw LlmException.Unknown(RuntimeException("Empty response body at ${req.url}"))
             }
-            emit(LlmEvent.Complete(fullText.toString(), model = req.url.encodedPath))
+            is StreamOutcome.Ok -> {
+                val fullText = StringBuilder()
+                try {
+                    SseStreamParser.parse(outcome.raw).collect { delta ->
+                        fullText.append(delta)
+                        emit(LlmEvent.Delta(delta))
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "SseStreamParser failed: ${e::class.java.simpleName} msg=${e.message} body[:200]=${outcome.raw.take(200)}", e)
+                    throw e
+                }
+                Log.d(TAG, "Stream complete: collected ${fullText.length} chars")
+                emit(LlmEvent.Complete(fullText.toString(), model = req.url.encodedPath))
+            }
         }
+    }
+
+    private sealed class StreamOutcome {
+        data class Ok(val raw: String) : StreamOutcome()
+        data class HttpError(val code: Int, val body: String) : StreamOutcome()
+        object EmptyBody : StreamOutcome()
     }
 }
 

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.io.FileDescriptor
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,13 +67,46 @@ class MediaRecorderLameImpl @Inject constructor(
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioSamplingRate(44_100)
-            setAudioEncodingBitRate(128_000)
+            setAudioEncodingBitRate(64_000)
             setOutputFile(outputPath)
             prepare()
             start()
         }
         recorder = rec
         _currentFilePath = outputPath
+        _state.value = RecordingState.Recording
+        handler.post(amplitudePollRunnable)
+    }
+
+    /**
+     * 输出到 [FileDescriptor]（典型场景：ContentResolver.openFileDescriptor(uri, "w")）。
+     * [identifier] 是给上层回传用的逻辑标识（如 MediaStore content URI 字符串），
+     * 后续 [stop] 会原样返回，便于调用方定位文件。
+     */
+    override suspend fun startWithFileDescriptor(outputFd: FileDescriptor) {
+        if (_state.value != RecordingState.Idle && _state.value != RecordingState.Stopped) {
+            throw IllegalStateException("Cannot start in state ${_state.value}")
+        }
+
+        @Suppress("DEPRECATION")
+        val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(context)
+        } else {
+            MediaRecorder()
+        }
+        rec.apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setAudioSamplingRate(44_100)
+            setAudioEncodingBitRate(64_000)
+            setOutputFile(outputFd)
+            prepare()
+            start()
+        }
+        recorder = rec
+        // FileDescriptor 场景下没有可表示的"路径"，调用方会在 stop 后从 URI 读取真实路径
+        _currentFilePath = null
         _state.value = RecordingState.Recording
         handler.post(amplitudePollRunnable)
     }
@@ -96,7 +130,7 @@ class MediaRecorderLameImpl @Inject constructor(
         }
     }
 
-    override suspend fun stop(): String {
+    override suspend fun stop() {
         val rec = recorder ?: throw IllegalStateException("Not recording")
         try {
             rec.stop()
@@ -106,8 +140,14 @@ class MediaRecorderLameImpl @Inject constructor(
             rec.reset()
             rec.release()
             recorder = null
-            _state.value = RecordingState.Stopped
+            // 終了後は Idle に戻す。Stopped 状態のままだと Compose Navigation
+            // で「録音 → 戻る → 再 enter」時に前回状態の Idle 以外の値が
+            // 残り、UI が「停止済み」画面で固定化される既知バグがある。
+            // 一方 ViewModel.stopRecording() が成功すると
+            // lastSavedSession に Session が入るので、UI 側 (RecordingScreen)
+            // は `recorder.state == Idle && lastSavedSession != null` の
+            // 条件で「録音を再生 / 文字起こし」を表示できる。
+            _state.value = RecordingState.Idle
         }
-        return _currentFilePath ?: throw IllegalStateException("No file")
     }
 }

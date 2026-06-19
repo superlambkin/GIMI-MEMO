@@ -19,6 +19,11 @@ android {
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
+// Use unique binary test results dir to avoid Windows file locks
+tasks.withType<Test>().configureEach {
+    binaryResultsDirectory.set(layout.buildDirectory.dir("test-results/${name}/binary-${System.nanoTime()}"))
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
@@ -32,6 +37,7 @@ dependencies {
     kapt(libs.hilt.compiler)
 
     implementation(project(":core-data"))
+    implementation(project(":core-whisper"))
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

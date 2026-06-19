@@ -20,7 +20,8 @@ data class SessionEntity(
     val txtFilePath: String? = null,
     val llmProvider: String? = null,
     val llmModel: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val processingDurationMs: Long = 0L
 )
 
 fun SessionEntity.toDomain(): Session = Session(
@@ -37,7 +38,8 @@ fun SessionEntity.toDomain(): Session = Session(
     txtFilePath = txtFilePath,
     llmProvider = llmProvider,
     llmModel = llmModel,
-    errorMessage = errorMessage
+    errorMessage = errorMessage,
+    processingDurationMs = processingDurationMs
 )
 
 fun Session.toEntity(): SessionEntity = SessionEntity(
@@ -54,5 +56,6 @@ fun Session.toEntity(): SessionEntity = SessionEntity(
     txtFilePath = txtFilePath,
     llmProvider = llmProvider,
     llmModel = llmModel,
-    errorMessage = errorMessage
+    errorMessage = errorMessage,
+    processingDurationMs = processingDurationMs
 )

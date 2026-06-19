@@ -15,7 +15,9 @@ data class LlmProviderConfig(
                 baseUrl = "https://api.minimaxi.com/v1",
                 defaultModel = "MiniMax-M3",
                 supportedModels = listOf("MiniMax-M3", "MiniMax-Text-01", "MiniMax-VL-01"),
-                supportsMultimodal = true,
+                // MiniMax M3 は input_audio 非対応 (image_url / video_url のみ)。
+                // 音声を扱う場合は OnDevice Whisper で文字起こし → text を chat completions で要約する 2 段階フロー必須。
+                supportsMultimodal = false,
                 apiKeyRef = "apikey_minimax_cn"
             ),
             LlmProviderConfig(
@@ -23,15 +25,15 @@ data class LlmProviderConfig(
                 baseUrl = "https://api.minimax.io/v1",
                 defaultModel = "MiniMax-M3",
                 supportedModels = listOf("MiniMax-M3", "MiniMax-Text-01", "MiniMax-VL-01"),
-                supportsMultimodal = true,
+                supportsMultimodal = false,
                 apiKeyRef = "apikey_minimax_overseas"
             ),
             LlmProviderConfig(
                 name = "OpenAI",
                 baseUrl = "https://api.openai.com/v1",
-                defaultModel = "gpt-4o-audio-preview",
-                supportedModels = listOf("gpt-4o-audio-preview", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
-                supportsMultimodal = true,
+                defaultModel = "gpt-4o-mini",
+                supportedModels = listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "o3-mini"),
+                supportsMultimodal = false, // チャットモデルは input_audio 非対応。Whisper API を使用
                 apiKeyRef = "apikey_openai"
             ),
             LlmProviderConfig(

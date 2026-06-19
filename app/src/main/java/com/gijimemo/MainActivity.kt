@@ -4,14 +4,25 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.ui.GijiMemoNavHost
+import com.gijimemo.ui.startup.StartupSplash
+import com.gijimemo.ui.startup.StartupState
+import com.gijimemo.ui.startup.StartupViewModel
 import com.gijimemo.ui.theme.GijiMemoTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    private val startupViewModel: StartupViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -20,7 +31,19 @@ class MainActivity : ComponentActivity() {
                 // Fix: activity-compose 1.9.0 不会自动注入 androidx.lifecycle.compose.LocalLifecycleOwner
                 // (在 1.9.1+ 修复), collectAsStateWithLifecycle 需要它才能工作
                 CompositionLocalProvider(LocalLifecycleOwner provides this) {
-                    GijiMemoNavHost()
+                    val startupState by startupViewModel.state.collectAsStateWithLifecycle()
+                    when (startupState) {
+                        is StartupState.Ready -> {
+                            GijiMemoNavHost()
+                        }
+                        else -> {
+                            StartupSplash(
+                                state = startupState,
+                                onRetry = { /* StartupViewModel re-extracts on init; for now this is a no-op and we rely on the failure being logged. */ },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
                 }
             }
         }

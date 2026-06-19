@@ -11,11 +11,17 @@ sealed class LlmException(message: String, cause: Throwable? = null) : Exception
     class RateLimited : LlmException("请求过于频繁，请稍后重试")
 
     /** 网络错（可重试） */
-    class NetworkError(cause: Throwable) : LlmException("网络问题: ${cause.message}", cause)
+    class NetworkError(cause: Throwable) : LlmException(
+        "网络问题: ${cause::class.java.simpleName} ${cause.message ?: "(无消息)"}",
+        cause
+    )
 
     /** 超时 */
     class Timeout : LlmException("LLM 响应超时")
 
     /** 未知 */
-    class Unknown(cause: Throwable) : LlmException("LLM 调用失败: ${cause.message}", cause)
+    class Unknown(cause: Throwable) : LlmException(
+        "LLM 调用失败 [${cause::class.java.simpleName}]: ${cause.message ?: "(无消息)"}",
+        cause
+    )
 }

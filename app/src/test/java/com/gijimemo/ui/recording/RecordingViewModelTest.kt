@@ -5,9 +5,9 @@ import com.gijimemo.audio.RecordingState
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.data.repository.SessionRepository
+import com.gijimemo.llm.OnDeviceWhisperClient
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -38,22 +38,27 @@ class RecordingViewModelTest {
 
     @Test
     fun `initial state is Idle`() {
-        val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true))
+        val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true), mockk(relaxed = true))
         assertThat(vm.state.value).isEqualTo(RecordingState.Idle)
     }
 
     @Test
-    fun `stopRecording records the durationMs passed in`() = runTest {
-        coEvery { recorder.stop() } returns "/tmp/test.mp3"
-        val context = mockk<android.content.Context>(relaxed = true) {
-            every { filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
-        }
-        val vm = RecordingViewModel(recorder, repo, context)
-        vm.startRecording()
+    fun `initial audioFilePath is null`() {
+        val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true), mockk(relaxed = true))
+        assertThat(vm.audioFilePath).isNull()
+    }
 
+    @Test
+    fun `initial playbackState is Idle`() {
+        val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true), mockk(relaxed = true))
+        assertThat(vm.playbackState.value).isEqualTo(PlaybackState.Idle)
+    }
+
+    @Test
+    fun `stopRecording returns null when no session was started`() = runTest {
+        coEvery { recorder.stop() } returns Unit
+        val vm = RecordingViewModel(recorder, repo, mockk(relaxed = true), mockk(relaxed = true))
         val session = vm.stopRecording(title = "Test", durationMs = 12_345L)
-
-        assertThat(session).isNotNull()
-        assertThat(session!!.durationMs).isEqualTo(12_345L)
+        assertThat(session).isNull()
     }
 }

@@ -15,13 +15,17 @@ android {
         applicationId = "com.gijimemo"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 8
+        versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "VERSION_NAME", "\"$versionName\"")
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -44,6 +48,13 @@ android {
             "META-INF/NOTICE",
             "META-INF/DEPENDENCIES"
         )
+        // Whisper.cpp 编译时未做 16KB 页对齐，Android 12+ 在
+        // extractNativeLibs=false 模式下会拒绝加载未对齐的 .so。
+        // 开启 jniLibs.useLegacyPackaging 让 .so 在安装时解压到文件系统，
+        // 放弃 mmap 性能换取兼容性。
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
@@ -55,6 +66,7 @@ dependencies {
     implementation(project(":core-document"))
     implementation(project(":core-share"))
     implementation(project(":core-data"))
+    implementation(project(":core-whisper"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)

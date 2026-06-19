@@ -28,7 +28,17 @@ class MultipartAudioUploader @Inject constructor(
         model: String,
         file: File
     ): String = withContext(Dispatchers.IO) {
-        val mediaType = "audio/mp4".toMediaTypeOrNull()
+        // ファイル拡張子に基づいて MIME タイプを選択
+        val mediaTypeStr = when (file.extension.lowercase()) {
+            "wav" -> "audio/wav"
+            "mp3" -> "audio/mpeg"
+            "m4a", "mp4" -> "audio/mp4"
+            "ogg" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "webm" -> "audio/webm"
+            else -> "audio/mp4" // fallback
+        }
+        val mediaType = mediaTypeStr.toMediaTypeOrNull()
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody(mediaType))

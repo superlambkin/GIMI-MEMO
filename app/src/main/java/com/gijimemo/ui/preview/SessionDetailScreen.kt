@@ -1,5 +1,6 @@
 package com.gijimemo.ui.preview
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,7 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,12 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.ui.settings.SettingsViewModel
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,11 +78,6 @@ fun SessionDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "削除")
                     }
                 }
             )
@@ -121,10 +120,10 @@ fun SessionDetailScreen(
                             )
                         }
                         if (session.audioFilePath != null) {
-                            val audioFile = File(session.audioFilePath)
-                            if (audioFile.exists()) {
+                            // 直接使用 Session.audioSizeBytes（录音结束时已记录），避免对 content URI 重新打开文件
+                            if (session.audioSizeBytes > 0L) {
                                 Text(
-                                    text = "音声: ${audioFile.length() / 1024} KB",
+                                    text = "音声: ${session.audioSizeBytes / 1024} KB",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
@@ -148,20 +147,108 @@ fun SessionDetailScreen(
                 }
             }
 
+            // 音声再生 + シーク
+            val isPlaying by viewModel.playbackState.collectAsStateWithLifecycle()
+            val playPos by viewModel.playbackPosition.collectAsStateWithLifecycle()
+            val playDur by viewModel.playbackDuration.collectAsStateWithLifecycle()
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("音声再生", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(onClick = { viewModel.playAudio() }, modifier = Modifier.heightIn(min = 36.dp)) {
+                            Text(if (isPlaying) "⏸" else "▶", fontSize = 14.sp)
+                        }
+                        OutlinedButton(onClick = { viewModel.stopAudio() }, modifier = Modifier.heightIn(min = 36.dp)) {
+                            Text("⏹", fontSize = 14.sp)
+                        }
+                    }
+                    if (playDur > 0L) {
+                        Slider(
+                            value = if (playDur > 0L) playPos.toFloat() / playDur else 0f,
+                            onValueChange = { viewModel.seekAudio((it * playDur).toInt()) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 20.dp)
+                        )
+                        val posS = playPos / 1000; val durS = playDur / 1000
+                        Text(
+                            "%02d:%02d / %02d:%02d".format(posS / 60, posS % 60, durS / 60, durS % 60),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             // 转写内容
             if (state.markdown.isNotBlank()) {
-                Text(
-                    text = "文字起こし結果",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(
-                    text = state.markdown,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "保存",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(Modifier.weight(1f))
+                    val ms = state.session?.processingDurationMs ?: 0L
+                    val charCount = state.markdown.length
+                    Text(
+                        text = "${charCount}文字",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (ms > 0L) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "(${formatProcessingDurationDetail(ms)})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                // 操作ボタン行（縮小/拡大/再生）
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedButton(onClick = { viewModel.decreaseFont() },
+                        modifier = Modifier.heightIn(min = 28.dp)) { Text("縮小", fontSize = 10.sp) }
+                    OutlinedButton(onClick = { viewModel.increaseFont() },
+                        modifier = Modifier.heightIn(min = 28.dp)) { Text("拡大", fontSize = 10.sp) }
+                    Spacer(Modifier.weight(1f))
+                    val isChinese = state.detectedLanguage?.contains("中文") == true
+                    val isSpeaking = viewModel.isSpeaking
+                    val isTranslating = state.isTranslating
+                    val cleanForTts = state.markdown.replace(Regex("[#*_`>\\[\\]|\\-]"), "").trim()
+                    if (isChinese) {
+                        OutlinedButton(
+                            onClick = { if (isTranslating) Unit else viewModel.translateToJapanese() },
+                            modifier = Modifier.heightIn(min = 32.dp),
+                            enabled = !isTranslating
+                        ) { Text(if (isTranslating) "..." else "日文", fontSize = 11.sp) }
+                    } else {
+                        OutlinedButton(
+                            onClick = { if (isSpeaking) viewModel.stopSpeaking() else viewModel.speak(cleanForTts) },
+                            modifier = Modifier.heightIn(min = 32.dp)
+                        ) { Text(if (isSpeaking) "■停止" else "▶再生", fontSize = 11.sp) }
+                    }
+                }
+                // Markdown全記号除去＋TTSハイライト＋可変フォント
+                val curParaIdx = viewModel.currentParagraphIndex
+                val paragraphs = state.markdown.split(Regex("\\n\\s*\\n")).filter { it.isNotBlank() }
+                val clean = { s: String -> s.replace(Regex("[#*_`>\\[\\]|\\-]"), "").trim() }
+                val bodyFontSize = viewModel.fontSizeSp
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    paragraphs.forEachIndexed { idx, para ->
+                        val bg = if (idx == curParaIdx && viewModel.isSpeaking)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        else androidx.compose.ui.graphics.Color.Transparent
+                        Text(
+                            text = clean(para),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = bodyFontSize.sp,
+                                lineHeight = (bodyFontSize * 1.6f).sp
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                                .let { m -> if (idx == curParaIdx && viewModel.isSpeaking) m.background(bg) else m }
+                        )
+                        Spacer(Modifier.height((bodyFontSize * 0.5f).dp))
+                    }
+                }
             } else {
                 Text(
                     text = state.error ?: "文字起こし結果なし",
@@ -181,9 +268,9 @@ fun SessionDetailScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 邮件分享 - 收件人预设下拉
+            // 受信者選択
             Text("受信者", style = MaterialTheme.typography.bodySmall)
             TextButton(
                 onClick = { recipientExpanded = true },
@@ -209,20 +296,34 @@ fun SessionDetailScreen(
                     }
                 }
             }
-            OutlinedTextField(
-                value = recipient,
-                onValueChange = { recipient = it },
-                label = { Text("または手動で入力") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = { viewModel.share(recipient) },
-                enabled = state.session != null && recipient.isNotBlank() && state.markdown.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
+
+            // 下段ボタン行: メールで共有 / 戻る / 削除（同色背景）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Filled.Share, contentDescription = null)
-                Text(" メールで共有")
+                Button(
+                    onClick = { viewModel.share(recipient) },
+                    enabled = state.session != null && recipient.isNotBlank() && state.markdown.isNotBlank(),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text("共有", fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text("戻る", fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text("削除", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
@@ -249,7 +350,41 @@ fun SessionDetailScreen(
 
     // 重命名
     if (showRenameDialog) {
-        var newTitle by remember { mutableStateOf(state.session?.title ?: "") }
+        // テンプレート種別を検出してタイトル自動生成
+        val suggestedTitle = run {
+            val md = state.markdown
+            val lines = md.lines()
+            // テンプレート種別を先頭見出しで判定
+            val templateType = when {
+                lines.any { it.contains("講演会概要") } -> "lecture"
+                lines.any { it.contains("授業概要") } -> "class"
+                lines.any { it.contains("取材概要") } -> "interview"
+                lines.any { it.contains("話題一覧") } -> "chat"
+                lines.any { it.contains("DR概要") } -> "dr"
+                else -> "minutes"
+            }
+            // 種別に応じたタイトル抽出
+            val titleFromContent = when (templateType) {
+                "lecture" -> Regex("""\*\*タイトル\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                "class" -> Regex("""\*\*科目名\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                    ?: Regex("""授業概要""").find(md)?.let { "授業" }
+                "interview" -> Regex("""\*\*テーマ\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                    ?: Regex("""取材概要""").find(md)?.let { "取材" }
+                "chat" -> Regex("""[#]+\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()?.take(30)
+                "dr" -> Regex("""\*\*プロジェクト名\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                    ?: Regex("""DR概要""").find(md)?.let { "DR" }
+                else -> Regex("""(?:議題|テーマ)[：;]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                    ?: Regex("""\*\*タイトル\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+            }
+            val heading = titleFromContent ?: lines.firstOrNull { it.startsWith("# ") }
+                ?.removePrefix("# ")?.trim()?.take(50) ?: "会議"
+            val date = state.session?.let {
+                java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault())
+                    .format(java.util.Date(it.createdAt))
+            } ?: ""
+            "$heading $date"
+        }
+        var newTitle by remember { mutableStateOf(suggestedTitle) }
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
             title = { Text("名前変更") },
@@ -281,4 +416,12 @@ private fun SessionStatus.label(): String = when (this) {
     SessionStatus.READY -> "完了"
     SessionStatus.SHARED -> "共有済み"
     SessionStatus.ERROR -> "失敗"
+}
+
+/** ms → "X分Y秒" / "Y秒" 表示。SessionDetail のヘッダ右側用。 */
+private fun formatProcessingDurationDetail(ms: Long): String {
+    val totalSec = (ms / 1000).toInt()
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return if (min > 0) "${min}分${sec}秒" else "${sec}秒"
 }

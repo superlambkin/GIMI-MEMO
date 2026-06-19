@@ -2,40 +2,75 @@ package com.gijimemo.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 /**
- * GimiMemo はダークテーマ固定（業務系高級感 UI）。
- * 動的カラー (Material You) は使用しない — ブランドの一貫性を優先。
+ * GijiMemo 無印良品風テーマ
+ *
+ * コンセプト: 「素材感」「余白」「不要なものを削ぐ」
+ * - ライトモード: オフホワイト背景 × チャコール文字
+ * - フラットデザイン: 陰影を極力排除、自然な色合い
+ * - Muji Red (#CC0000) を最小限のアクセントに
  */
-private val GimiMemoDarkColorScheme = darkColorScheme(
-    primary = Gold500,
-    onPrimary = NavyBackground,
-    primaryContainer = NavySurface,
-    onPrimaryContainer = Gold200,
+private val MujiLightColorScheme = lightColorScheme(
+    primary = MujiRed,
+    onPrimary = Surface,
+    primaryContainer = MujiRedLight,
+    onPrimaryContainer = MujiRedDark,
 
-    secondary = NavySurfaceVariant,
+    secondary = SurfaceVariant,
     onSecondary = TextPrimary,
-    secondaryContainer = NavySurface,
+    secondaryContainer = SurfaceVariant,
     onSecondaryContainer = TextSecondary,
 
-    tertiary = Gold400,
-    onTertiary = NavyBackground,
+    tertiary = TextTertiary,
+    onTertiary = Surface,
 
-    background = NavyBackground,
+    background = Background,
     onBackground = TextPrimary,
 
-    surface = NavySurface,
+    surface = Surface,
     onSurface = TextPrimary,
-    surfaceVariant = NavySurfaceVariant,
+    surfaceVariant = SurfaceVariant,
     onSurfaceVariant = TextSecondary,
 
-    outline = NavyOutline,
-    outlineVariant = NavyOutline,
+    outline = Outline,
+    outlineVariant = Outline,
 
     error = Error,
-    onError = TextPrimary
+    onError = Surface
+)
+
+private val MujiDarkColorScheme = darkColorScheme(
+    primary = MujiRed,
+    onPrimary = DarkBackground,
+    primaryContainer = MujiRedDark,
+    onPrimaryContainer = MujiRedLight,
+
+    secondary = DarkSurface,
+    onSecondary = DarkTextPrimary,
+    secondaryContainer = DarkSurface,
+    onSecondaryContainer = DarkTextSecondary,
+
+    tertiary = DarkTextSecondary,
+    onTertiary = DarkBackground,
+
+    background = DarkBackground,
+    onBackground = DarkTextPrimary,
+
+    surface = DarkSurface,
+    onSurface = DarkTextPrimary,
+    surfaceVariant = DarkSurface,
+    onSurfaceVariant = DarkTextSecondary,
+
+    outline = DarkSurface,
+    outlineVariant = DarkSurface,
+
+    error = MujiRed,
+    onError = DarkBackground
 )
 
 @Composable
@@ -43,7 +78,6 @@ fun GijiMemoTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    // ブランド一貫性のため、ダーク固定
-    val colorScheme = GimiMemoDarkColorScheme
+    val colorScheme = if (darkTheme) MujiDarkColorScheme else MujiLightColorScheme
     MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

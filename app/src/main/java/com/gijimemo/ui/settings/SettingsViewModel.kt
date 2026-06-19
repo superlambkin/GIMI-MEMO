@@ -1,32 +1,31 @@
 package com.gijimemo.ui.settings
 
+import android.content.Context
+import android.speech.tts.TextToSpeech
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.repository.SettingsRepository
-import com.gijimemo.llm.LlmClient
-import com.gijimemo.llm.LlmProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
-    private val llmProvider: LlmProvider
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val providers: List<LlmProviderConfig> = settings.defaultProviders()
@@ -35,10 +34,7 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LlmCallMode.MULTIMODAL)
 
     val chunkMinutes: StateFlow<Int> = settings.defaultChunkMinutes
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 25)
-
-    val recipient: StateFlow<String> = settings.defaultRecipient
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 10)
 
     val recipients: StateFlow<List<String>> = settings.recipients
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -46,10 +42,60 @@ class SettingsViewModel @Inject constructor(
     val promptTemplate: StateFlow<String> = settings.defaultPromptTemplate
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val decodeEnabled: StateFlow<Boolean> = settings.decodeEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val ttsSpeechRate: StateFlow<Float> = settings.ttsSpeechRate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
+    val ttsPitch: StateFlow<Float> = settings.ttsPitch
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1.0f)
+
+    fun setTtsSpeechRate(v: Float) = viewModelScope.launch { settings.setTtsSpeechRate(v) }
+    fun setTtsPitch(v: Float) = viewModelScope.launch { settings.setTtsPitch(v) }
+    val ttsEngine: StateFlow<String?> = settings.ttsEngine
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    fun setTtsEngine(v: String?) = viewModelScope.launch { settings.setTtsEngine(v) }
+
+    /** 利用可能なTTSエンジン一覧（遅延初期化） */
+    private var _availableEngines: List<EngineInfo>? = null
+    val availableEngines: List<EngineInfo> get() {
+        if (_availableEngines == null) {
+            _availableEngines = runCatching {
+                @Suppress("DEPRECATION")
+                val tts = TextToSpeech(context, null)
+                val list = tts.engines.map { EngineInfo(it.name, it.label?.toString() ?: it.name) }
+                tts.shutdown(); list
+            }.getOrDefault(emptyList())
+        }
+        return _availableEngines!!
+    }
+
+    data class EngineInfo(val packageName: String, val label: String)
+
+    /** 試聴再生（初期化完了後に発声） */
+    private var trialTts: TextToSpeech? = null
+    fun trialPlay(rate: Float, pitch: Float, engine: String?) {
+        trialTts?.stop(); trialTts?.shutdown()
+        val listener = TextToSpeech.OnInitListener { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                trialTts?.language = java.util.Locale.JAPANESE
+                trialTts?.setSpeechRate(rate)
+                trialTts?.speak("これはテスト音声です。話速とピッチを確認してください。",
+                    TextToSpeech.QUEUE_FLUSH, null, "trial")
+            }
+        }
+        @Suppress("DEPRECATION")
+        trialTts = if (engine != null) TextToSpeech(context, listener, engine)
+        else TextToSpeech(context, listener)
+    }
+    override fun onCleared() { super.onCleared(); trialTts?.stop(); trialTts?.shutdown() }
+
     private val _selectedProviderName = MutableStateFlow<String?>(null)
     val selectedProviderName: StateFlow<String?> = _selectedProviderName.asStateFlow()
 
-    /** 当前选中 provider 的模型（per-provider，存到 "default_model_<providerName>" key） */
     val currentModel: StateFlow<String> = _selectedProviderName
         .flatMapLatest { name ->
             if (name == null) {
@@ -61,28 +107,11 @@ class SettingsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
-    /** API 接続テストの状態: Idle / Running / Success(text) / Error(message) */
-    sealed class ApiTestState {
-        object Idle : ApiTestState()
-        object Running : ApiTestState()
-        data class Success(val response: String) : ApiTestState()
-        data class Error(val message: String) : ApiTestState()
-    }
-
-    private val _apiTestState = MutableStateFlow<ApiTestState>(ApiTestState.Idle)
-    val apiTestState: StateFlow<ApiTestState> = _apiTestState.asStateFlow()
-
-    fun dismissApiTest() {
-        _apiTestState.value = ApiTestState.Idle
-    }
-
     init {
         viewModelScope.launch {
             _selectedProviderName.value = settings.selectedProvider().name
         }
     }
-
-    fun getApiKey(ref: String): String? = settings.getApiKey(ref)
 
     fun selectProvider(name: String) {
         viewModelScope.launch {
@@ -92,10 +121,22 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setCallMode(v: LlmCallMode) = viewModelScope.launch { settings.setDefaultCallMode(v) }
+    fun setUseOnDeviceAsr(v: Boolean) = viewModelScope.launch { settings.setUseOnDeviceAsr(v) }
+    fun setDecodeEnabled(v: Boolean) = viewModelScope.launch { settings.setDecodeEnabled(v) }
     fun setChunkMinutes(v: Int) = viewModelScope.launch { settings.setDefaultChunkMinutes(v) }
-    fun setRecipient(v: String) = viewModelScope.launch { settings.setDefaultRecipient(v) }
     fun setPromptTemplate(v: String) = viewModelScope.launch { settings.setDefaultPromptTemplate(v) }
-    fun setApiKey(ref: String, key: String) = settings.setApiKey(ref, key)
+
+    /** 種類別テンプレートを保存 */
+    fun setPromptTemplate(type: String, value: String) {
+        viewModelScope.launch { settings.setTemplateForType(type, value) }
+    }
+
+    /** 種類別テンプレートを取得（同期的簡易読取） */
+    fun getTemplate(type: String): String = run {
+        try {
+            kotlinx.coroutines.runBlocking { settings.templateForType(type).first() }
+        } catch (_: Exception) { null }
+    } ?: ""
 
     fun addRecipient(email: String) = viewModelScope.launch { settings.addRecipient(email) }
     fun removeRecipient(email: String) = viewModelScope.launch { settings.removeRecipient(email) }
@@ -105,34 +146,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setModelForProvider(name, model) }
     }
 
-    /** 当前 provider 支持的模型列表（用于 UI dropdown） */
     fun supportedModels(): List<String> {
         val name = _selectedProviderName.value ?: return emptyList()
         return providers.firstOrNull { it.name == name }?.supportedModels ?: emptyList()
-    }
-
-    /**
-     * 接続テスト: 選択中の provider / API Key / model で短い chat completion を呼び出し結果を返す。
-     * ApiTestState が Idle→Running→Success/Error に遷移する。
-     */
-    fun testApi() {
-        val name = _selectedProviderName.value ?: return
-        val config = providers.firstOrNull { it.name == name } ?: return
-        val apiKey = settings.getApiKey(config.apiKeyRef)?.trim().orEmpty()
-        if (apiKey.isEmpty()) {
-            _apiTestState.value = ApiTestState.Error("API Key が未設定です")
-            return
-        }
-        val model = runBlocking { settings.modelForProvider(name).first() }?.takeIf { it.isNotBlank() } ?: config.defaultModel
-        _apiTestState.value = ApiTestState.Running
-        viewModelScope.launch {
-            try {
-                val client: LlmClient = llmProvider.createClient(config, apiKey, model)
-                val response = client.testConnection()
-                _apiTestState.value = ApiTestState.Success(response.take(300))
-            } catch (e: Exception) {
-                _apiTestState.value = ApiTestState.Error(e.message ?: e::class.java.simpleName)
-            }
-        }
     }
 }

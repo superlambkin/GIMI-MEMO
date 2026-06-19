@@ -18,3 +18,5 @@ test_screenshots/
 ui_dump.*
 ui_dump.b64
 ui_dump.xml
+*.bin
+core-whisper/src/main/assets/whisper_models/
