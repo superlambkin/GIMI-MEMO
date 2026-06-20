@@ -27,6 +27,9 @@ class SettingsDataStore(private val context: Context) {
     private val keyDrTemplate = stringPreferencesKey("template_dr")
     private val keyInterviewTemplate = stringPreferencesKey("template_interview")
     private val keyChatTemplate = stringPreferencesKey("template_chat")
+    private val keyMediaTemplate = stringPreferencesKey("template_media")
+    private val keyCustom1Template = stringPreferencesKey("template_custom1")
+    private val keyCustom2Template = stringPreferencesKey("template_custom2")
     private val keyUseOnDeviceAsr = booleanPreferencesKey("use_on_device_asr")
     private val keyWhisperModel = stringPreferencesKey("whisper_model")
     private val keyAutoProvider = booleanPreferencesKey("auto_provider")
@@ -36,6 +39,11 @@ class SettingsDataStore(private val context: Context) {
     private val keyTtsRate = floatPreferencesKey("tts_speech_rate")
     private val keyTtsPitch = floatPreferencesKey("tts_pitch")
     private val keyTtsEngine = stringPreferencesKey("tts_engine")
+    private val keyRecordingSampleRate = intPreferencesKey("recording_sample_rate")
+    private val keyRecordingBitRate = intPreferencesKey("recording_bit_rate")
+    private val keyEnableNs = booleanPreferencesKey("enable_noise_suppressor")
+    private val keyEnableAgc = booleanPreferencesKey("enable_automatic_gain_control")
+    private val keyEnableVad = booleanPreferencesKey("enable_voice_activity_detection")
 
     val defaultProvider: Flow<String> = context.dataStore.data.map { it[keyProvider] ?: "MiniMax 国内" }
     val defaultModel: Flow<String> = context.dataStore.data.map { it[keyModel] ?: "MiniMax-M3" }
@@ -89,7 +97,7 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setDefaultFormatPriority(v: String) = context.dataStore.edit { it[keyFormatPriority] = v }
     suspend fun setDefaultPromptTemplate(v: String) = context.dataStore.edit { it[keyPromptTemplate] = v }
 
-    // ─── 4種類の要約テンプレート ──────────────────────────
+    // ─── 要約テンプレート ──────────────────────────
     fun templateForType(type: String): Flow<String?> = context.dataStore.data.map { prefs ->
         val saved = when (type) {
             "lecture" -> prefs[keyLectureTemplate]
@@ -97,6 +105,9 @@ class SettingsDataStore(private val context: Context) {
             "dr" -> prefs[keyDrTemplate]
             "interview" -> prefs[keyInterviewTemplate]
             "chat" -> prefs[keyChatTemplate]
+            "media" -> prefs[keyMediaTemplate]
+            "custom1" -> prefs[keyCustom1Template]
+            "custom2" -> prefs[keyCustom2Template]
             else -> prefs[keyMinutesTemplate]
         }
         if (!saved.isNullOrBlank()) saved else defaultTemplate(type)
@@ -161,6 +172,9 @@ Q: （質問） A: （回答）
 （箇条書き）
 # 感想・考察
 （会話に対する所感と今後に活かせる点）"""
+        "media" -> ""
+        "custom1" -> ""
+        "custom2" -> ""
         else -> """以下の会議の文字起こしを要約してください。
 
 出力形式:
@@ -183,6 +197,9 @@ Q: （質問） A: （回答）
             "dr" -> keyDrTemplate
             "interview" -> keyInterviewTemplate
             "chat" -> keyChatTemplate
+            "media" -> keyMediaTemplate
+            "custom1" -> keyCustom1Template
+            "custom2" -> keyCustom2Template
             else -> keyMinutesTemplate
         }
         it[key] = value
@@ -233,6 +250,19 @@ Q: （質問） A: （回答）
 
     suspend fun setModelForProvider(providerName: String, model: String) =
         context.dataStore.edit { it[stringPreferencesKey("default_model_$providerName")] = model }
+
+    // ─── 録音設定 ────────────────────────────────────────────
+    val recordingSampleRate: Flow<Int> = context.dataStore.data.map { it[keyRecordingSampleRate] ?: 16000 }
+    val recordingBitRate: Flow<Int> = context.dataStore.data.map { it[keyRecordingBitRate] ?: 48000 }
+    suspend fun setRecordingSampleRate(v: Int) = context.dataStore.edit { it[keyRecordingSampleRate] = v }
+    suspend fun setRecordingBitRate(v: Int) = context.dataStore.edit { it[keyRecordingBitRate] = v }
+
+    val enableNoiseSuppressor: Flow<Boolean> = context.dataStore.data.map { it[keyEnableNs] ?: true }
+    val enableAutomaticGainControl: Flow<Boolean> = context.dataStore.data.map { it[keyEnableAgc] ?: true }
+    val enableVoiceActivityDetection: Flow<Boolean> = context.dataStore.data.map { it[keyEnableVad] ?: true }
+    suspend fun setEnableNoiseSuppressor(v: Boolean) = context.dataStore.edit { it[keyEnableNs] = v }
+    suspend fun setEnableAutomaticGainControl(v: Boolean) = context.dataStore.edit { it[keyEnableAgc] = v }
+    suspend fun setEnableVoiceActivityDetection(v: Boolean) = context.dataStore.edit { it[keyEnableVad] = v }
 
     companion object {
         const val DEFAULT_PROMPT_TEMPLATE = """以下の録音を文字起こしし、入力と同じ言語で Markdown 形式の議事録を出力してください。

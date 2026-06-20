@@ -1,5 +1,10 @@
 package com.gijimemo.ui.home
 
+import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.provider.DocumentsContract
+import android.provider.DocumentsContract.EXTRA_INITIAL_URI
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
@@ -41,6 +47,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onNewRecording: () -> Unit,
     onSessionImported: (String) -> Unit,
+    onTxtImported: (String) -> Unit,
     onSessionClick: (String) -> Unit,
     onSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -58,6 +65,21 @@ fun HomeScreen(
                     onSessionImported(id)
                 } else {
                     scope.launch { snackbarHostState.showSnackbar("インポートに失敗しました") }
+                }
+            }
+        }
+    }
+
+    val pickTxtLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+        if (uri != null) {
+            viewModel.importTxtFile(uri) { id ->
+                if (id != null) {
+                    onTxtImported(id)
+                } else {
+                    scope.launch { snackbarHostState.showSnackbar("TXTインポートに失敗しました") }
                 }
             }
         }
@@ -90,6 +112,23 @@ fun HomeScreen(
                 TextButton(onClick = { pickAudioLauncher.launch(arrayOf("audio/*")) }) {
                     Icon(Icons.Filled.LibraryMusic, contentDescription = null)
                     Text(" MP3 インポート")
+                }
+                TextButton(onClick = {
+                    viewModel.ensureTxtImportDir()
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "text/plain"
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            putExtra(EXTRA_INITIAL_URI, DocumentsContract.buildDocumentUri(
+                                "com.android.externalstorage.documents",
+                                "primary:Download/GIMI_MEMO"
+                            ))
+                        }
+                    }
+                    pickTxtLauncher.launch(intent)
+                }) {
+                    Icon(Icons.Filled.Description, contentDescription = null)
+                    Text(" TXT インポート")
                 }
                 ExtendedFloatingActionButton(
                     onClick = onNewRecording,

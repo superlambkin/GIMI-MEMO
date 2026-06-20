@@ -127,7 +127,7 @@ fun SettingsScreen(
                 expanded = providerExpanded,
                 onDismissRequest = { providerExpanded = false }
             ) {
-                viewModel.providers.forEach { p ->
+                viewModel.configuredProviders.forEach { p ->
                     DropdownMenuItem(
                         text = { Text(p.name) },
                         onClick = { viewModel.selectProvider(p.name); providerExpanded = false }
@@ -206,13 +206,14 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val supportsMultimodal = viewModel.currentProviderSupportsMultimodal()
                 OutlinedButton(
                     onClick = { viewModel.setCallMode(LlmCallMode.MULTIMODAL) },
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp),
-                    enabled = callMode != LlmCallMode.MULTIMODAL
-                ) { Text("マルチモーダル") }
+                    enabled = callMode != LlmCallMode.MULTIMODAL && supportsMultimodal
+                ) { Text(if (supportsMultimodal) "マルチモーダル" else "マルチモーダル（非対応）") }
                 OutlinedButton(
                     onClick = { viewModel.setCallMode(LlmCallMode.WHISPER_THEN_SUMMARY) },
                     modifier = Modifier
@@ -268,23 +269,131 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            SettingsLabel("分割サイズ：${chunk}MB（最大25MB）")
+            SettingsLabel("分割サイズ：${chunk}MB（最大24MB）")
             Slider(
                 value = chunk.toFloat(),
                 onValueChange = { viewModel.setChunkMinutes(it.toInt()) },
-                valueRange = 1f..25f,
-                steps = 24
+                valueRange = 1f..24f,
+                steps = 23
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("1MB", style = MaterialTheme.typography.bodySmall)
-                Text("25MB", style = MaterialTheme.typography.bodySmall)
+                Text("24MB", style = MaterialTheme.typography.bodySmall)
             }
         }
 
-        // ─── ④ 受信者プリセット ────────────────────────
+        // ─── ④ 録音設定 ────────────────────────────
+        SettingsSectionCard(title = "録音設定", icon = { Icon(Icons.Filled.Mic, contentDescription = null) }) {
+            val sampleRate by viewModel.recordingSampleRate.collectAsStateWithLifecycle()
+            val bitRate by viewModel.recordingBitRate.collectAsStateWithLifecycle()
+            val enableNs by viewModel.enableNoiseSuppressor.collectAsStateWithLifecycle()
+            val enableAgc by viewModel.enableAutomaticGainControl.collectAsStateWithLifecycle()
+            val enableVad by viewModel.enableVoiceActivityDetection.collectAsStateWithLifecycle()
+
+            // サンプリングレート
+            SettingsLabel("サンプリングレート")
+            var srExpanded by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${sampleRate / 1000}kHz（${sampleRate}Hz）",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedButton(
+                    onClick = { srExpanded = true },
+                    modifier = Modifier.heightIn(min = 40.dp)
+                ) { Text("変更", fontSize = 12.sp) }
+            }
+            DropdownMenu(
+                expanded = srExpanded,
+                onDismissRequest = { srExpanded = false }
+            ) {
+                listOf(8000, 16000, 22050, 44100).forEach { v ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "${v / 1000}kHz（${v}Hz）${if (v == 16000) "★推奨" else ""}",
+                                color = if (v == 16000) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = { viewModel.setRecordingSampleRate(v); srExpanded = false }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ビットレート
+            SettingsLabel("ビットレート（AAC）")
+            var brExpanded by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${bitRate / 1000}kbps",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedButton(
+                    onClick = { brExpanded = true },
+                    modifier = Modifier.heightIn(min = 40.dp)
+                ) { Text("変更", fontSize = 12.sp) }
+            }
+            DropdownMenu(
+                expanded = brExpanded,
+                onDismissRequest = { brExpanded = false }
+            ) {
+                listOf(32000, 48000, 64000, 96000, 128000).forEach { v ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "${v / 1000}kbps${if (v == 48000) " ★推奨" else ""}",
+                                color = if (v == 48000) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = { viewModel.setRecordingBitRate(v); brExpanded = false }
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ─── 音声処理機能（ON/OFF） ──────────────────
+            SettingsLabel("音声処理機能（会議録音の品質向上）")
+            AudioProcessingToggle(
+                label = "ノイズ抑制（空調・ファン等の定常ノイズを低減）",
+                checked = enableNs,
+                onCheckedChange = { viewModel.setEnableNoiseSuppressor(it) }
+            )
+            AudioProcessingToggle(
+                label = "自動音量調整（発言者の距離差を補正）",
+                checked = enableAgc,
+                onCheckedChange = { viewModel.setEnableAutomaticGainControl(it) }
+            )
+            AudioProcessingToggle(
+                label = "声活動検出（無音部分を検出し文字起こし精度向上）",
+                checked = enableVad,
+                onCheckedChange = { viewModel.setEnableVoiceActivityDetection(it) }
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "全て初期値ON。各種デバイスで効果が異なるため、録音品質に応じて調整してください。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // ─── ⑤ 受信者プリセット ────────────────────────
         SettingsSectionCard(title = "受信者プリセット", icon = { Icon(Icons.Filled.Person, contentDescription = null) }) {
             if (recipients.isEmpty()) {
                 Text(
@@ -343,7 +452,7 @@ fun SettingsScreen(
             }
         }
 
-        // ─── ⑤ 要約テンプレート ──────────────────────
+        // ─── ⑥ 要約テンプレート ──────────────────────
         SettingsSectionCard(title = "要約テンプレート（種類別）", icon = { Icon(Icons.Filled.ModelTraining, contentDescription = null) }) {
             var expandedType by remember { mutableStateOf("minutes") }
             Row(
@@ -375,6 +484,21 @@ fun SettingsScreen(
                     }
                 }
             }
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf("media" to "メディア", "custom1" to "カスタム1", "custom2" to "カスタム2").forEach { (key, label) ->
+                    OutlinedButton(
+                        onClick = { expandedType = key },
+                        modifier = Modifier.weight(1f).heightIn(min = 36.dp),
+                        enabled = expandedType != key
+                    ) {
+                        Text(label, fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             var templateText by remember(expandedType) {
                 mutableStateOf(viewModel.getTemplate(expandedType))
@@ -391,7 +515,7 @@ fun SettingsScreen(
             )
         }
 
-        // ─── ⑥ 読み上げ設定 ──────────────────────────
+        // ─── ⑦ 読み上げ設定 ──────────────────────────
         SettingsSectionCard(title = "読み上げ設定", icon = { Icon(Icons.Filled.VolumeUp, contentDescription = null) }) {
             val ttsRate by viewModel.ttsSpeechRate.collectAsStateWithLifecycle()
             val ttsPitch by viewModel.ttsPitch.collectAsStateWithLifecycle()
@@ -532,4 +656,25 @@ private fun SettingsLabel(text: String) {
 private fun callModeDisplay(mode: LlmCallMode): String = when (mode) {
     LlmCallMode.MULTIMODAL -> "マルチモーダル（音声直接送信）"
     LlmCallMode.WHISPER_THEN_SUMMARY -> "Whisper+要約（文字起こし後確認あり）"
+}
+
+@Composable
+private fun AudioProcessingToggle(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).padding(end = 8.dp)
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }

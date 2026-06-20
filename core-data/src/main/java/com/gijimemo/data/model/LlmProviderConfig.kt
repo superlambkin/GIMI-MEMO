@@ -32,8 +32,10 @@ data class LlmProviderConfig(
                 name = "OpenAI",
                 baseUrl = "https://api.openai.com/v1",
                 defaultModel = "gpt-4o-mini",
+                // gpt-4o-audio-preview は input_audio 対応だがプレビューモデルのため
+                // 一部のAPIキーでは利用不可。必要な場合はモデル選択から手動で追加してください。
                 supportedModels = listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "o3-mini"),
-                supportsMultimodal = false, // チャットモデルは input_audio 非対応。Whisper API を使用
+                supportsMultimodal = false,
                 apiKeyRef = "apikey_openai"
             ),
             LlmProviderConfig(

@@ -23,6 +23,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.data.model.SessionStatus
@@ -63,6 +66,14 @@ fun SessionDetailScreen(
     var recipientExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showResummaryDialog by remember { mutableStateOf(false) }
+    var resummaryType by remember { mutableStateOf("minutes") }
+    val resummaryDefaultMaxChars = if (state.markdown.length > 0) {
+        val tenth = state.markdown.length / 10 / 100 * 100
+        if (state.markdown.length <= 500) state.markdown.length.coerceAtLeast(100)
+        else tenth.coerceAtLeast(100)
+    } else 100
+    var resummaryMaxChars by remember { mutableStateOf(resummaryDefaultMaxChars.toString()) }
 
     LaunchedEffect(Unit) { viewModel.load() }
     LaunchedEffect(recipients) {
@@ -182,10 +193,10 @@ fun SessionDetailScreen(
             // 转写内容
             if (state.markdown.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "保存",
-                        style = MaterialTheme.typography.titleSmall
-                    )
+                    OutlinedButton(
+                        onClick = { viewModel.saveDocuments() },
+                        modifier = Modifier.heightIn(min = 28.dp)
+                    ) { Text("保存", fontSize = 11.sp) }
                     Spacer(Modifier.weight(1f))
                     val ms = state.session?.processingDurationMs ?: 0L
                     val charCount = state.markdown.length
@@ -211,7 +222,7 @@ fun SessionDetailScreen(
                         modifier = Modifier.heightIn(min = 28.dp)) { Text("拡大", fontSize = 10.sp) }
                     Spacer(Modifier.weight(1f))
                     val isChinese = state.detectedLanguage?.contains("中文") == true
-                    val isSpeaking = viewModel.isSpeaking
+                    val isSpeaking = viewModel.isSpeaking || viewModel.isCloudSpeaking
                     val isTranslating = state.isTranslating
                     val cleanForTts = state.markdown.replace(Regex("[#*_`>\\[\\]|\\-]"), "").trim()
                     if (isChinese) {
@@ -226,6 +237,16 @@ fun SessionDetailScreen(
                             modifier = Modifier.heightIn(min = 32.dp)
                         ) { Text(if (isSpeaking) "■停止" else "▶再生", fontSize = 11.sp) }
                     }
+                }
+                // TTS状態メッセージ
+                val ttsMsg = viewModel.ttsMessage
+                if (ttsMsg != null) {
+                    Text(
+                        text = ttsMsg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
                 // Markdown全記号除去＋TTSハイライト＋可変フォント
                 val curParaIdx = viewModel.currentParagraphIndex
@@ -300,7 +321,7 @@ fun SessionDetailScreen(
             // 再要約（独立行）
             if (state.markdown.isNotBlank()) {
                 OutlinedButton(
-                    onClick = { viewModel.resummarize() },
+                    onClick = { showResummaryDialog = true },
                     enabled = !viewModel.isResummarizing,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
                 ) {
@@ -385,7 +406,7 @@ fun SessionDetailScreen(
                 "chat" -> Regex("""[#]+\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()?.take(30)
                 "dr" -> Regex("""\*\*プロジェクト名\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
                     ?: Regex("""DR概要""").find(md)?.let { "DR" }
-                else -> Regex("""(?:議題|テーマ)[：;]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
+                else -> Regex("""\s*(?:議題|テーマ)[：:;]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
                     ?: Regex("""\*\*タイトル\*\*[：:]\s*(.+)""").find(md)?.groupValues?.get(1)?.trim()
             }
             val heading = titleFromContent ?: lines.firstOrNull { it.startsWith("# ") }
@@ -419,6 +440,129 @@ fun SessionDetailScreen(
             }
         )
     }
+
+    // 再要約設定ダイアログ
+    if (showResummaryDialog) {
+        ResummaryOptionsDialog(
+            initialType = resummaryType,
+            initialMaxChars = resummaryMaxChars,
+            markdownLength = state.markdown.length,
+            onConfirm = { type, chars ->
+                resummaryType = type
+                resummaryMaxChars = chars
+                showResummaryDialog = false
+                val maxInt = chars.toIntOrNull() ?: resummaryDefaultMaxChars
+                viewModel.resummarizeWithOptions(type, maxInt)
+            },
+            onDismiss = { showResummaryDialog = false }
+        )
+    }
+}
+
+// ─── 再要約設定ダイアログ ────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ResummaryOptionsDialog(
+    initialType: String,
+    initialMaxChars: String,
+    markdownLength: Int,
+    onConfirm: (type: String, maxChars: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedType by remember { mutableStateOf(initialType) }
+    var maxCharsText by remember { mutableStateOf(initialMaxChars) }
+    var typeExpanded by remember { mutableStateOf(false) }
+
+    val typeOptions = listOf(
+        "minutes" to "議事録",
+        "lecture" to "講演会",
+        "class" to "授業",
+        "interview" to "取材",
+        "chat" to "雑談",
+        "dr" to "DR"
+    )
+    val typeLabel = typeOptions.first { it.first == selectedType }.second
+
+    val defaultChars = ((markdownLength / 10) / 100 * 100).coerceAtLeast(100)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("要約設定（再要約）") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "原文文字数: ${markdownLength} 文字",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 種類選択
+                ExposedDropdownMenuBox(
+                    expanded = typeExpanded,
+                    onExpandedChange = { typeExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = typeLabel,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("種類") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = typeExpanded,
+                        onDismissRequest = { typeExpanded = false }
+                    ) {
+                        typeOptions.forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    selectedType = key
+                                    typeExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // 最大文字数スライダー（100文字単位）。最大値は原文の2倍以上に設定可能
+                val maxVal = (maxOf(markdownLength * 2, 200) / 100 * 100).coerceIn(200, 50000)
+                val sliderVal = (maxCharsText.toIntOrNull() ?: defaultChars).toFloat()
+                Slider(
+                    value = sliderVal,
+                    onValueChange = { v ->
+                        val snapped = (v / 100f).roundToInt() * 100
+                        maxCharsText = snapped.coerceIn(100, maxVal).toString()
+                    },
+                    valueRange = 100f..maxVal.toFloat(),
+                    steps = ((maxVal - 100) / 100).coerceIn(1, 500),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("100", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${maxVal}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(
+                    "${maxCharsText} 文字（原文の1/10: $defaultChars）",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(selectedType, maxCharsText) }) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("キャンセル")
+            }
+        }
+    )
 }
 
 private fun SessionStatus.label(): String = when (this) {

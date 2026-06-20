@@ -261,7 +261,15 @@ fun PreviewScreen(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
+
+        // ─── 保存 ─────────────────────────────────────
+        OutlinedButton(
+            onClick = { viewModel.saveDocuments() },
+            modifier = Modifier.fillMaxWidth().height(44.dp)
+        ) { Text("保存（docx/md/txt）", fontSize = 13.sp) }
+
+        Spacer(Modifier.height(8.dp))
 
         // ─── メールで共有 ──────────────────────────────
         Button(

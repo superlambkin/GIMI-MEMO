@@ -109,4 +109,17 @@ class SettingsRepository @Inject constructor(
     suspend fun setTemplateForType(type: String, value: String) = store.setTemplateForType(type, value)
     suspend fun setModelForProvider(providerName: String, model: String) =
         store.setModelForProvider(providerName, model)
+
+    // ─── 録音設定 ────────────────────────────────────────
+    val recordingSampleRate get() = store.recordingSampleRate
+    val recordingBitRate get() = store.recordingBitRate
+    suspend fun setRecordingSampleRate(v: Int) = store.setRecordingSampleRate(v)
+    suspend fun setRecordingBitRate(v: Int) = store.setRecordingBitRate(v)
+
+    val enableNoiseSuppressor get() = store.enableNoiseSuppressor
+    val enableAutomaticGainControl get() = store.enableAutomaticGainControl
+    val enableVoiceActivityDetection get() = store.enableVoiceActivityDetection
+    suspend fun setEnableNoiseSuppressor(v: Boolean) = store.setEnableNoiseSuppressor(v)
+    suspend fun setEnableAutomaticGainControl(v: Boolean) = store.setEnableAutomaticGainControl(v)
+    suspend fun setEnableVoiceActivityDetection(v: Boolean) = store.setEnableVoiceActivityDetection(v)
 }

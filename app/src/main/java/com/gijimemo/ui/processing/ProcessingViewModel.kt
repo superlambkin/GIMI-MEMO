@@ -163,48 +163,31 @@ class ProcessingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val session = repo.getById(sessionId) ?: error("Session $sessionId not found")
+
+                // TXTインポート（音声なし、rawTranscriptあり）→ 文字起こしスキップ
+                if (session.rawTranscript != null && session.audioFilePath.isNullOrBlank()) {
+                    setupLlmClient()
+                    cachedAudioFile = null
+                    _state.value = ProcessingState(
+                        phase = ProcessingPhase.TRANSCRIBED,
+                        rawTranscript = session.rawTranscript ?: ""
+                    )
+                    Log.d(tag, "TXT import: skip transcribe, rawTranscript=${session.rawTranscript?.length ?: 0}chars")
+                    return@launch
+                }
+
                 val audioFile = resolveAudioFile(session.audioFilePath)
 
-                // 自動モードなら API Key 設定済プロバイダを優先順位に従って自動選択。
-                val providerConfig = if (settings.autoProviderMode.first()) {
-                    val picked = settings.autoSelectProvider()
-                    val hasKey = settings.isApiKeyConfigured(picked)
-                    if (!hasKey && picked.name != "Ollama") {
-                        error("API Key for ${picked.name} が見つかりません。設定画面で API Key を入力してください。")
-                    }
-                    picked
-                } else {
-                    settings.selectedProvider()
-                }
-                val apiKey = settings.getApiKey(providerConfig.apiKeyRef)
-                    ?: if (providerConfig.name == "Ollama") "ollama" else
-                    error("API Key for ${providerConfig.name} not set")
+                // 常にユーザーが選択したプロバイダを使用（autoProviderMode は設定画面にUIがなく無効化済み）
+                val providerConfig = settings.selectedProvider()
                 val callMode = settings.defaultCallMode.first()
-                val prompt = settings.defaultPromptTemplate.first()
-                val model = settings.modelForProvider(providerConfig.name).first()
-                    ?: providerConfig.defaultModel
 
-                // OnDevice Whisper 自動判定
-                val autoUseOnDevice = !providerConfig.supportsMultimodal
-                val useOnDevice = if (settings.autoProviderMode.first()) {
-                    autoUseOnDevice
-                } else {
-                    settings.useOnDeviceAsr.first()
-                }
+                // 文字起こし（ASR）はユーザー設定に従う（LLMプロバイダのマルチモーダル対応とは無関係）
+                val useOnDevice = settings.useOnDeviceAsr.first()
 
-                cachedPrompt = buildPromptWithLangHint(prompt, langHint)
-                cachedProviderName = providerConfig.name
-                cachedModel = model
                 cachedAudioFile = audioFile
                 cachedUseOnDevice = useOnDevice
-
-                cachedClient = provider.createClient(
-                    config = providerConfig,
-                    apiKey = apiKey,
-                    model = model,
-                    useOnDeviceAsr = useOnDevice,
-                    langHint = langHint
-                )
+                cachedClient = initializeLlmClient(useOnDevice)
 
                 // 文字起こしは常に OpenAI Whisper API を使用するため、
                 // OpenAI クライアントを別途作成（設定のプロバイダとは独立）
@@ -216,11 +199,11 @@ class ProcessingViewModel @Inject constructor(
                     null
                 }
 
-                // 分割サイズを設定から読み込む（1〜20MB）
-                chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 25)
+                // 分割サイズを設定から読み込む（1〜24MB）
+                chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 24)
                 val decodeEnabled = settings.decodeEnabled.first()
                 Log.d(tag, "Processing start: session=$sessionId provider=${providerConfig.name} " +
-                        "model=$model mode=$callMode onDevice=$useOnDevice " +
+                        "model=$cachedModel mode=$callMode onDevice=$useOnDevice " +
                         "supportsMultimodal=${providerConfig.supportsMultimodal} " +
                         "audio=${audioFile.absolutePath} size=${audioFile.length()} " +
                         "chunkSize=${chunkSizeMb}MB decodeEnabled=$decodeEnabled")
@@ -233,10 +216,6 @@ class ProcessingViewModel @Inject constructor(
                         startTranscribePhase(audioFile)
                     }
                     // クラウド文字起こしは常に 20MB 分割 Whisper API を使用。
-                    // 理由:
-                    //  - MULTIMODAL は gpt-4o-mini 等が input_audio 非対応
-                    //  - Base64 デコードで OOM リスク
-                    //  - 分割すればファイルサイズ制限(25MB)を回避可能
                     else -> {
                         Log.d(tag, "File ${audioFile.length() / 1024 / 1024}MB, chunked Whisper API")
                         chunkAndTranscribe(audioFile)
@@ -247,6 +226,37 @@ class ProcessingViewModel @Inject constructor(
             }
         }
     }
+
+    /** Provider設定をロードして LLM クライアントを作成する。start() と TXT インポートの両方で使用 */
+    private suspend fun initializeLlmClient(useOnDeviceAsr: Boolean): LlmClient {
+        val providerConfig = settings.selectedProvider()
+        val apiKey = settings.getApiKey(providerConfig.apiKeyRef)
+            ?: if (providerConfig.name == "Ollama") "ollama" else
+            error("API Key for ${providerConfig.name} not set")
+        val prompt = settings.defaultPromptTemplate.first()
+        val model = settings.modelForProvider(providerConfig.name).first()
+            ?: providerConfig.defaultModel
+
+        cachedPrompt = buildPromptWithLangHint(prompt, langHint)
+        cachedProviderName = providerConfig.name
+        cachedModel = model
+
+        return provider.createClient(
+            config = providerConfig,
+            apiKey = apiKey,
+            model = model,
+            useOnDeviceAsr = useOnDeviceAsr,
+            langHint = langHint
+        )
+    }
+
+    /** LLMクライアントのみを初期化（TXTインポート用）。initializeLlmClient に委譲。 */
+    private suspend fun setupLlmClient() {
+        cachedClient = initializeLlmClient(false)
+    }
+
+    /** TXTインポートなど音声がない場合に再生ボタンを非表示にするための判定 */
+    fun hasAudioFile(): Boolean = cachedAudioFile != null
 
     /**
      * 文字起こしフェーズを開始する（オンデバイスWhisper または API Whisper）。
@@ -277,9 +287,10 @@ class ProcessingViewModel @Inject constructor(
                 val fileName = "GijiMemo_${System.currentTimeMillis()}.txt"
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                        put(MediaStore.Downloads.IS_PENDING, 1)
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/GIMI_MEMO")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                     val uri = context.contentResolver.insert(
                         MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
@@ -289,18 +300,21 @@ class ProcessingViewModel @Inject constructor(
                             os.write(text.toByteArray(Charsets.UTF_8))
                         }
                         values.clear()
-                        values.put(MediaStore.Downloads.IS_PENDING, 0)
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                         context.contentResolver.update(uri, values, null, null)
                     }
                 } else {
                     @Suppress("DEPRECATION")
-                    val dir = Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS
+                    val dir = File(
+                        Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS
+                        ), "GIMI_MEMO"
                     )
+                    dir.mkdirs()
                     val file = File(dir, fileName)
                     file.writeText(text, Charsets.UTF_8)
                 }
-                Log.d(tag, "Transcript saved to Downloads/$fileName")
+                Log.d(tag, "Transcript saved to Download/GIMI_MEMO/$fileName")
                 // UI スレッドで Toast 表示
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "保存しました", android.widget.Toast.LENGTH_SHORT).show()
@@ -430,6 +444,11 @@ class ProcessingViewModel @Inject constructor(
         mediaPlayer = null
         _playbackState.value = false
         _playbackPosition.value = 0L
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopAudio()
     }
 
     /** 要約タイプに対応する追加指示文（Word出力＋感想・考察含む） */
@@ -569,6 +588,7 @@ A: （回答）
      */
     fun confirmAndSummarize(text: String, type: String = "minutes", maxChars: Int = (text.length / 10).coerceAtLeast(100)) {
         stopAudio() // 要約開始前に再生を停止
+
         val client = cachedClient ?: run {
             _state.value = _state.value.copy(
                 phase = ProcessingPhase.ERROR,
@@ -587,6 +607,13 @@ A: （回答）
         Log.d(tag, "Summarize: type=$type maxChars=$maxChars date=$dateStr")
 
         viewModelScope.launch {
+            // 原文（要約前の文字起こし）をファイル保存（同コルーチン内で同期的に実行）
+            withContext(Dispatchers.IO) {
+                val originalFile = File(context.filesDir, "docs/${sessionId}_original.txt")
+                originalFile.parentFile?.mkdirs()
+                originalFile.writeText(text)
+                Log.d(tag, "Original transcript saved for session $sessionId (${text.length}chars)")
+            }
             _state.value = _state.value.copy(
                 phase = ProcessingPhase.SUMMARIZING,
                 summaryText = "",
@@ -609,7 +636,7 @@ A: （回答）
                             val fullText = stripThinkTags(event.fullText.ifEmpty { sb.toString() })
                             val elapsed = System.currentTimeMillis() - processingStartMs
                             Log.d(tag, "Summary Complete: ${fullText.length} chars, elapsed=${elapsed}ms")
-                            finalizeSession(fullText, cachedProviderName, cachedModel)
+                            finalizeSession(fullText, cachedProviderName, cachedModel, rawTranscript = text)
                             _state.value = _state.value.copy(
                                 phase = ProcessingPhase.COMPLETED,
                                 summaryText = fullText,
@@ -743,13 +770,19 @@ A: （回答）
         return s.trim()
     }
 
-    private suspend fun finalizeSession(markdown: String, providerName: String, model: String) {
+    private suspend fun finalizeSession(
+        markdown: String,
+        providerName: String,
+        model: String,
+        rawTranscript: String? = null
+    ) {
         val elapsed = if (processingStartMs > 0L) {
             System.currentTimeMillis() - processingStartMs
         } else 0L
         repo.getById(sessionId)?.let { session ->
             val updated = session.copy(
                 transcriptMd = markdown,
+                rawTranscript = rawTranscript ?: session.rawTranscript,
                 llmProvider = providerName,
                 llmModel = model,
                 status = SessionStatus.READY,

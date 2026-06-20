@@ -15,13 +15,13 @@ interface AudioRecorder {
     val currentFilePath: String?
 
     /** 开始录音，指定输出文件路径（App 私有目录场景） */
-    suspend fun start(outputPath: String)
+    suspend fun start(outputPath: String, config: AudioProcessingConfig = AudioProcessingConfig())
 
     /**
      * 开始录音，输出到 [FileDescriptor]（MediaStore / ContentProvider 场景）。
      * 实现方需负责 [FileDescriptor] 的生命周期。
      */
-    suspend fun startWithFileDescriptor(outputFd: FileDescriptor)
+    suspend fun startWithFileDescriptor(outputFd: FileDescriptor, config: AudioProcessingConfig = AudioProcessingConfig())
 
     /** 暂停 */
     suspend fun pause()

@@ -1,6 +1,11 @@
 package com.gijimemo.ui.preview
 
+import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -12,6 +17,7 @@ import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.data.repository.SessionRepository
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.document.MarkdownGenerator
 import com.gijimemo.document.TextGenerator
 import com.gijimemo.document.WordDocumentGenerator
@@ -22,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,6 +38,7 @@ import javax.inject.Inject
 class PreviewViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repo: SessionRepository,
+    private val settings: SettingsRepository,
     private val wordGen: WordDocumentGenerator,
     private val mdGen: MarkdownGenerator,
     private val txtGen: TextGenerator,
@@ -49,20 +57,79 @@ class PreviewViewModel @Inject constructor(
     private var ttsReady = false
     var isSpeaking by mutableStateOf(false); private set
     private var pendingSpeak: String? = null
+    private var ttsEngineSetting: String? = null
+
+    private val googleTtsPackage = "com.google.android.tts"
+    private fun isPackageInstalled(pkg: String): Boolean = try {
+        context.packageManager.getPackageInfo(pkg, PackageManager.GET_META_DATA)
+        true
+    } catch (_: PackageManager.NameNotFoundException) { false }
 
     init {
-        tts = TextToSpeech(context) { status ->
-            ttsReady = (status == TextToSpeech.SUCCESS)
-            if (ttsReady) {
-                tts?.language = java.util.Locale.JAPANESE
-                pendingSpeak?.let { s -> tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, "tts"); isSpeaking = true; pendingSpeak = null }
+        viewModelScope.launch {
+            ttsEngineSetting = settings.ttsEngine.first()
+            if (tts == null) initTts()
+        }
+    }
+
+    private fun initTts() {
+        if (tts != null && ttsReady) return
+        tts?.shutdown()
+
+        var engine = when {
+            ttsEngineSetting != null -> ttsEngineSetting
+            isPackageInstalled(googleTtsPackage) -> googleTtsPackage
+            else -> null
+        }
+        // Huawei Mate 60 Pro では PackageManager が Google TTS を検出できない。
+        // 実際にはインストール済みなのでパッケージ名を直接試す。
+        if (engine == null) {
+            Log.i("PreviewVM", "PackageManager failed to detect Google TTS, trying direct package")
+            engine = googleTtsPackage
+        }
+        @Suppress("DEPRECATION")
+        tts = try {
+            TextToSpeech(context, { status -> onTtsInit(status) }, engine)
+        } catch (e: Exception) {
+            Log.w("PreviewVM", "TTS engine $engine failed: ${e.message}, using default")
+            TextToSpeech(context) { status -> onTtsInit(status) }
+        }
+    }
+
+    private fun onTtsInit(status: Int) {
+        ttsReady = (status == TextToSpeech.SUCCESS)
+        if (ttsReady) {
+            setupTts()
+        } else {
+            Log.w("PreviewVM", "TTS init failed: status=$status engine=$ttsEngineSetting")
+        }
+    }
+
+    private fun setupTts() {
+        val langAvail = tts?.isLanguageAvailable(java.util.Locale.JAPANESE) ?: return
+        if (langAvail >= TextToSpeech.LANG_AVAILABLE) {
+            tts?.setLanguage(java.util.Locale.JAPANESE)
+        } else {
+            // isLanguageAvailable が false でも setLanguage を試す（Google TTS 等で実際は使える場合がある）
+            val langResult = tts?.setLanguage(java.util.Locale.JAPANESE)
+            if (langResult != null && langResult >= TextToSpeech.LANG_AVAILABLE) {
+                Log.i("PreviewVM", "Japanese available via setLanguage ($langResult)")
+            } else {
+                Log.w("PreviewVM", "TTS Japanese not available ($langAvail), using default locale")
+                tts?.setLanguage(java.util.Locale.getDefault())
             }
         }
+        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onDone(uid: String?) { if (uid == "tts") isSpeaking = false }
+            override fun onError(uid: String?) { if (uid == "tts") isSpeaking = false }
+            override fun onStart(uid: String?) {}
+        })
+        pendingSpeak?.let { s -> tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, "tts"); isSpeaking = true; pendingSpeak = null }
     }
 
     fun speak(text: String) {
         if (isSpeaking) { stopSpeaking(); return }
-        if (!ttsReady) { pendingSpeak = text; return }
+        if (!ttsReady) { pendingSpeak = text; initTts(); return }
         try { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts"); isSpeaking = true }
         catch (e: Exception) { Log.e("PreviewVM", "TTS fail", e) }
     }
@@ -125,7 +192,7 @@ class PreviewViewModel @Inject constructor(
                 wordGen.generate(markdown, session.title, docxFile)
             }
             if (!mdFile.exists()) mdGen.generate(markdown, mdFile)
-            if (!txtFile.exists()) txtGen.generate(markdown, txtFile)
+            // TXTは自動生成しない（保存ボタンで原文ファイルから個別に作成）
 
             val updated = session.copy(
                 docxFilePath = docxFile.absolutePath,
@@ -140,6 +207,87 @@ class PreviewViewModel @Inject constructor(
                 txtPath = txtFile.absolutePath
             )
         }
+    }
+
+    /** ファイル（docx/md/txt）を Download/GIMI_MEMO/ に保存 */
+    fun saveDocuments() {
+        val docsDir = File(context.filesDir, "docs")
+        val sessionId = _state.value.session?.id ?: return
+        val originalFile = File(docsDir, "${sessionId}_original.txt")
+        val datePart = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault())
+            .format(java.util.Date(_state.value.session?.createdAt ?: System.currentTimeMillis()))
+        val txtFile = File(docsDir, "${datePart}_原文.txt")
+
+        // TXT: 原文ファイルがあれば作成、なければ rawTranscript→session→スキップ
+        if (!txtFile.exists() && originalFile.exists()) {
+            txtGen.generate(originalFile.readText(), txtFile)
+        }
+        if (!txtFile.exists() && _state.value.session?.rawTranscript != null) {
+            txtGen.generate(_state.value.session!!.rawTranscript!!, txtFile)
+        }
+
+        val files = listOfNotNull(
+            _state.value.docxPath?.let { File(it) },
+            _state.value.mdPath?.let { File(it) },
+            if (txtFile.exists()) txtFile else null
+        ).filter { it.exists() }
+        if (files.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var savedCount = 0
+                for (file in files) {
+                    val fileName = file.name
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val values = ContentValues().apply {
+                            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                            put(MediaStore.MediaColumns.MIME_TYPE, mimeType(file))
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/GIMI_MEMO")
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
+                        val uri = context.contentResolver.insert(
+                            MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+                        )
+                        if (uri != null) {
+                            context.contentResolver.openOutputStream(uri)?.use { os ->
+                                file.inputStream().use { ins -> ins.copyTo(os) }
+                            }
+                            values.clear()
+                            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                            context.contentResolver.update(uri, values, null, null)
+                            savedCount++
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val dir = File(
+                            Environment.getExternalStoragePublicDirectory(
+                                Environment.DIRECTORY_DOWNLOADS
+                            ), "GIMI_MEMO"
+                        )
+                        dir.mkdirs()
+                        file.copyTo(File(dir, fileName), overwrite = true)
+                        savedCount++
+                    }
+                }
+                if (txtFile.exists() && !originalFile.exists() && _state.value.session?.rawTranscript == null) {
+                    // TXTファイルを生成できなかった場合は注意表示
+                }
+                val msg = savedCount.toString() + "ファイル保存しました" +
+                    (if (!txtFile.exists()) "（TXTは原文なし）" else "")
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("PreviewVM", "saveDocuments failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun mimeType(file: File): String = when {
+        file.name.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        file.name.endsWith(".md") -> "text/markdown"
+        file.name.endsWith(".txt") -> "text/plain"
+        else -> "application/octet-stream"
     }
 
     fun share(recipient: String) {

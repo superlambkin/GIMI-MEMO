@@ -1,5 +1,6 @@
 package com.gijimemo.ui.settings
 
+import android.util.Log
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.LlmClient
@@ -8,6 +9,7 @@ import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
+import io.mockk.mockkStatic
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +72,10 @@ class ApiKeyManagementViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        mockkStatic(Log::class)
+        every { Log.e(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
         settingsRepo = mockk(relaxed = true)
         llmProvider = mockk(relaxed = true)
         every { settingsRepo.defaultProviders() } returns sixProviders

@@ -21,6 +21,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): GijiMemoDatabase =
         Room.databaseBuilder(ctx, GijiMemoDatabase::class.java, "gijimemo.db")
+            .addMigrations(GijiMemoDatabase.MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 

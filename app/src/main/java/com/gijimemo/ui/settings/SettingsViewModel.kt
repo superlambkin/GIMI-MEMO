@@ -30,6 +30,17 @@ class SettingsViewModel @Inject constructor(
 
     val providers: List<LlmProviderConfig> = settings.defaultProviders()
 
+    /** APIキーが保存済みのプロバイダのみ（Ollamaはキー不要のため常に含む） */
+    val configuredProviders: List<LlmProviderConfig> get() = providers.filter { p ->
+        p.name == "Ollama" || settings.getApiKey(p.apiKeyRef)?.isNotBlank() == true
+    }
+
+    /** 現在選択中のプロバイダがマルチモーダル対応か */
+    fun currentProviderSupportsMultimodal(): Boolean {
+        val name = _selectedProviderName.value ?: return false
+        return providers.firstOrNull { it.name == name }?.supportsMultimodal ?: false
+    }
+
     val callMode: StateFlow<LlmCallMode> = settings.defaultCallMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LlmCallMode.MULTIMODAL)
 
@@ -62,6 +73,23 @@ class SettingsViewModel @Inject constructor(
     val ttsEngine: StateFlow<String?> = settings.ttsEngine
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     fun setTtsEngine(v: String?) = viewModelScope.launch { settings.setTtsEngine(v) }
+
+    // ─── 録音設定 ────────────────────────────────────────
+    val recordingSampleRate: StateFlow<Int> = settings.recordingSampleRate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 16000)
+    val recordingBitRate: StateFlow<Int> = settings.recordingBitRate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 48000)
+    val enableNoiseSuppressor: StateFlow<Boolean> = settings.enableNoiseSuppressor
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val enableAutomaticGainControl: StateFlow<Boolean> = settings.enableAutomaticGainControl
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val enableVoiceActivityDetection: StateFlow<Boolean> = settings.enableVoiceActivityDetection
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    fun setRecordingSampleRate(v: Int) = viewModelScope.launch { settings.setRecordingSampleRate(v) }
+    fun setRecordingBitRate(v: Int) = viewModelScope.launch { settings.setRecordingBitRate(v) }
+    fun setEnableNoiseSuppressor(v: Boolean) = viewModelScope.launch { settings.setEnableNoiseSuppressor(v) }
+    fun setEnableAutomaticGainControl(v: Boolean) = viewModelScope.launch { settings.setEnableAutomaticGainControl(v) }
+    fun setEnableVoiceActivityDetection(v: Boolean) = viewModelScope.launch { settings.setEnableVoiceActivityDetection(v) }
 
     /** 利用可能なTTSエンジン一覧（遅延初期化） */
     private var _availableEngines: List<EngineInfo>? = null
@@ -121,6 +149,19 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settings.setDefaultProvider(name)
             _selectedProviderName.value = name
+            // ユーザーが明示的にプロバイダを選択した場合、自動選択モードをOFFにする
+            if (settings.autoProviderMode.first()) {
+                settings.setAutoProviderMode(false)
+            }
+            val provider = providers.firstOrNull { it.name == name } ?: return@launch
+            val currentMode = settings.defaultCallMode.first()
+            if (provider.supportsMultimodal && currentMode != LlmCallMode.MULTIMODAL) {
+                // マルチモーダル対応プロバイダ → 自動でマルチモーダルモードに切替
+                settings.setDefaultCallMode(LlmCallMode.MULTIMODAL)
+            } else if (!provider.supportsMultimodal && currentMode == LlmCallMode.MULTIMODAL) {
+                // 非対応プロバイダ → Whisper+要約に自動切替
+                settings.setDefaultCallMode(LlmCallMode.WHISPER_THEN_SUMMARY)
+            }
         }
     }
 

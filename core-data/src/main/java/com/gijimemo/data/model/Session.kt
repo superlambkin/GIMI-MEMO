@@ -29,5 +29,10 @@ data class Session(
      * 文字起こし + 要約の合計処理時間 (ms)。完了時に記録。
      * 0L は未計測 (旧データ / インポート直後 etc.)。
      */
-    val processingDurationMs: Long = 0L
+    val processingDurationMs: Long = 0L,
+    /**
+     * 文字起こし結果の原文（要約前のテキスト）。TXTファイル生成に使用。
+     * null の場合は transcriptMd を TXT に使用（後方互換）。
+     */
+    val rawTranscript: String? = null
 )

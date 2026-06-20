@@ -124,6 +124,15 @@ class ApiKeyManagementViewModel @Inject constructor(
     /** UI 初期表示時のフォールバック (init 完了前の 1 フレーム目用) */
     fun getDraft(ref: String): String = _draft.value[ref].orEmpty()
 
+    /** 実際に保存済みのAPI Keyがあるか（draft の編集中状態ではなく、settings の永続値で判定） */
+    fun hasSavedKey(ref: String): Boolean {
+        val config = providers.firstOrNull { it.apiKeyRef == ref }
+        // Ollama は API Key 不要で常に利用可能
+        if (config?.name == "Ollama") return true
+        val saved = settings.getApiKey(ref)
+        return !saved.isNullOrBlank()
+    }
+
     sealed class SaveResult {
         data class Success(val savedCount: Int) : SaveResult()
         data class Failure(val message: String) : SaveResult()

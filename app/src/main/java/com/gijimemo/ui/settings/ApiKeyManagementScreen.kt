@@ -66,16 +66,21 @@ fun ApiKeyManagementScreen(
     val saveResult by viewModel.saveResult.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 保存結果 SnackBar 通知
+    // 保存結果 SnackBar + 成功時は設定画面に戻る
     LaunchedEffect(saveResult) {
         when (val r = saveResult) {
-            is ApiKeyManagementViewModel.SaveResult.Success ->
+            is ApiKeyManagementViewModel.SaveResult.Success -> {
                 snackbarHostState.showSnackbar("${r.savedCount} 件の API Key を保存しました")
-            is ApiKeyManagementViewModel.SaveResult.Failure ->
+                // dismissSaveResult を呼ばない（呼ぶと LaunchedEffect が再起動して delay/onBack が飛ぶ）
+                kotlinx.coroutines.delay(600)
+                onBack()
+            }
+            is ApiKeyManagementViewModel.SaveResult.Failure -> {
                 snackbarHostState.showSnackbar("保存失敗: ${r.message}")
+                viewModel.dismissSaveResult()
+            }
             null -> Unit
         }
-        if (saveResult != null) viewModel.dismissSaveResult()
     }
 
     Scaffold(
@@ -87,11 +92,6 @@ fun ApiKeyManagementScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { viewModel.saveAll() }) {
-                        Icon(Icons.Filled.Save, contentDescription = "一括保存")
-                    }
-                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) { data -> Snackbar(snackbarData = data) } }
@@ -118,6 +118,7 @@ fun ApiKeyManagementScreen(
                 ApiKeyCard(
                     provider = provider,
                     currentValue = currentValue,
+                    isConfigured = viewModel.hasSavedKey(provider.apiKeyRef),
                     testState = testMap[provider.apiKeyRef] ?: ApiKeyManagementViewModel.ApiTestState.Idle,
                     onValueChange = { viewModel.onKeyChange(provider.apiKeyRef, it) },
                     onTest = { viewModel.testOne(provider.apiKeyRef) }
@@ -144,13 +145,11 @@ fun ApiKeyManagementScreen(
 private fun ApiKeyCard(
     provider: LlmProviderConfig,
     currentValue: String,
+    isConfigured: Boolean = false,
     testState: ApiKeyManagementViewModel.ApiTestState,
     onValueChange: (String) -> Unit,
     onTest: () -> Unit
 ) {
-    // 単一情報源: ViewModel の draft 値。local の `var text` を持たないことで
-    // 編集途中の IME reset / 親の再コンポーズで値が消える問題を回避。
-    val configured = currentValue.isNotBlank() || provider.name == "Ollama"
 
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -178,7 +177,7 @@ private fun ApiKeyCard(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                if (configured) {
+                if (isConfigured) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Filled.CheckCircle,

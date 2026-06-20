@@ -11,11 +11,13 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gijimemo.audio.AudioProcessingConfig
 import com.gijimemo.audio.AudioRecorder
 import com.gijimemo.audio.RecordingState
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.data.repository.SessionRepository
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.OnDeviceWhisperClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +49,7 @@ enum class PlaybackState {
 class RecordingViewModel @Inject constructor(
     private val recorder: AudioRecorder,
     private val repo: SessionRepository,
+    private val settings: SettingsRepository,
     @ApplicationContext private val context: Context,
     // OnDeviceWhisperClient は LlmModule で @Provides されており、
     // core-whisper を持つビルドでは必ず Hilt から供給される。
@@ -127,11 +131,19 @@ class RecordingViewModel @Inject constructor(
         viewModelScope.launch {
             val id = UUID.randomUUID().toString()
             _sessionId.value = id
+            // 設定から録音パラメータ + 音声処理設定を読む
+            val config = AudioProcessingConfig(
+                sampleRate = settings.recordingSampleRate.first(),
+                bitRate = settings.recordingBitRate.first(),
+                noiseSuppressor = settings.enableNoiseSuppressor.first(),
+                automaticGainControl = settings.enableAutomaticGainControl.first(),
+                voiceActivityDetection = settings.enableVoiceActivityDetection.first()
+            )
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startRecordingApi29(id)
+                    startRecordingApi29(id, config)
                 } else {
-                    startRecordingLegacy(id)
+                    startRecordingLegacy(id, config)
                 }
             } catch (e: Exception) {
                 Log.e("GijiMemo", "录音启动失败: ${e.message}", e)
@@ -142,13 +154,13 @@ class RecordingViewModel @Inject constructor(
     }
 
     /** API 29+：MediaStore + Scoped Storage 写入 Music/GijiMemo/ */
-    private suspend fun startRecordingApi29(sessionId: String) = withContext(Dispatchers.IO) {
+    private suspend fun startRecordingApi29(sessionId: String, config: AudioProcessingConfig) = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val values = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, "$sessionId.m4a")
             put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
-            put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/GijiMemo")
+            put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/GijiMemo")
             put(MediaStore.Audio.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(collection, values)
@@ -157,11 +169,11 @@ class RecordingViewModel @Inject constructor(
             ?: throw IOException("openFileDescriptor returned null")
         pendingPfd = pfd
         pendingUri = uri
-        recorder.startWithFileDescriptor(pfd.fileDescriptor)
+        recorder.startWithFileDescriptor(pfd.fileDescriptor, config)
     }
 
     /** API 26-28：降级到 Environment.getExternalStoragePublicDirectory */
-    private suspend fun startRecordingLegacy(sessionId: String) = withContext(Dispatchers.IO) {
+    private suspend fun startRecordingLegacy(sessionId: String, config: AudioProcessingConfig) = withContext(Dispatchers.IO) {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
             "GijiMemo"
@@ -170,7 +182,7 @@ class RecordingViewModel @Inject constructor(
             throw IOException("Failed to create directory: ${dir.absolutePath}")
         }
         val outFile = File(dir, "$sessionId.m4a")
-        recorder.start(outFile.absolutePath)
+        recorder.start(outFile.absolutePath, config)
     }
 
     fun pauseRecording() = viewModelScope.launch { recorder.pause() }
@@ -377,5 +389,65 @@ class RecordingViewModel @Inject constructor(
             release()
         }
         player = null
+    }
+
+    // ─── 保存 ───────────────────────────────────────────────
+
+    /** 録音ファイルを Download/GIMI_MEMO/ にコピー保存 */
+    fun saveAudioToDownloads() {
+        val location = _lastSavedSession.value?.audioFilePath ?: return
+        if (location.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val session = _lastSavedSession.value ?: return@launch
+                val fileName = "${session.id}.m4a"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/GIMI_MEMO")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    val uri = context.contentResolver.insert(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+                    )
+                    if (uri != null) {
+                        context.contentResolver.openOutputStream(uri)?.use { os ->
+                            if (location.startsWith("content://")) {
+                                context.contentResolver.openInputStream(Uri.parse(location))?.use { ins ->
+                                    ins.copyTo(os)
+                                }
+                            } else {
+                                File(location).inputStream().use { ins -> ins.copyTo(os) }
+                            }
+                        }
+                        values.clear()
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        context.contentResolver.update(uri, values, null, null)
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    val dir = File(
+                        Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS
+                        ), "GIMI_MEMO"
+                    )
+                    dir.mkdirs()
+                    val src = File(location)
+                    if (src.exists()) {
+                        src.copyTo(File(dir, fileName), overwrite = true)
+                    }
+                }
+                Log.i(TAG, "Audio saved to Download/GIMI_MEMO/$fileName")
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "音声ファイルを保存しました", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "saveAudioToDownloads failed: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "保存失敗: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }

@@ -21,7 +21,8 @@ data class SessionEntity(
     val llmProvider: String? = null,
     val llmModel: String? = null,
     val errorMessage: String? = null,
-    val processingDurationMs: Long = 0L
+    val processingDurationMs: Long = 0L,
+    val rawTranscript: String? = null
 )
 
 fun SessionEntity.toDomain(): Session = Session(
@@ -39,7 +40,8 @@ fun SessionEntity.toDomain(): Session = Session(
     llmProvider = llmProvider,
     llmModel = llmModel,
     errorMessage = errorMessage,
-    processingDurationMs = processingDurationMs
+    processingDurationMs = processingDurationMs,
+    rawTranscript = rawTranscript
 )
 
 fun Session.toEntity(): SessionEntity = SessionEntity(
@@ -57,5 +59,6 @@ fun Session.toEntity(): SessionEntity = SessionEntity(
     llmProvider = llmProvider,
     llmModel = llmModel,
     errorMessage = errorMessage,
-    processingDurationMs = processingDurationMs
+    processingDurationMs = processingDurationMs,
+    rawTranscript = rawTranscript
 )

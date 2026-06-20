@@ -494,6 +494,18 @@ private fun StoppedPlaybackAndTranscribe(
         }
     }
     Spacer(Modifier.height(4.dp))
+    // ─── 保存ボタン ────────────────────────────────────────
+    OutlinedButton(
+        onClick = { viewModel.saveAudioToDownloads() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+    ) {
+        Icon(Icons.Filled.VolumeUp, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text("保存（音声ファイル）", fontSize = 15.sp)
+    }
+    Spacer(Modifier.height(4.dp))
     // キャンセル: この録音を破棄して新規録音に戻る
     OutlinedButton(
         onClick = onDiscard,

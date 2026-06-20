@@ -120,6 +120,7 @@ fun ProcessingScreen(
                     isPlaying = isPlaying,
                     playbackPositionMs = playPos,
                     playbackDurationMs = playDur,
+                    hasAudio = viewModel.hasAudioFile(),
                     onPlayPause = { viewModel.playAudio() },
                     onStop = { viewModel.stopAudio() },
                     onSeek = { viewModel.seekAudio(it) },
@@ -238,8 +239,8 @@ private fun SummaryOptionsDialog(
                     }
                 }
 
-                // 最大文字数スライダー（100文字単位）
-                val maxVal = (transcriptLength / 100 * 100).coerceIn(100, 50000)
+                // 最大文字数スライダー（100文字単位）。最大値は原文の2倍以上に設定可能
+                val maxVal = (maxOf(transcriptLength * 2, 200) / 100 * 100).coerceIn(200, 50000)
                 val sliderVal = (maxCharsText.toIntOrNull() ?: defaultChars).toFloat()
                 Slider(
                     value = sliderVal,
@@ -522,6 +523,7 @@ private fun TranscribedContent(
     isPlaying: Boolean,
     playbackPositionMs: Long,
     playbackDurationMs: Long,
+    hasAudio: Boolean = true,
     onPlayPause: () -> Unit,
     onStop: () -> Unit,
     onSeek: (Int) -> Unit,
@@ -576,46 +578,48 @@ private fun TranscribedContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 再生/停止行
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Button(
-                onClick = onPlayPause,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp)
+        // 再生/停止行（音声がないTXTインポート時は非表示）
+        if (hasAudio) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(if (isPlaying) "⏸ 一時停止" else "▶ 再生", fontSize = 13.sp)
+                Button(
+                    onClick = onPlayPause,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp)
+                ) {
+                    Text(if (isPlaying) "⏸ 一時停止" else "▶ 再生", fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = onStop,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp)
+                ) {
+                    Text("⏹ 停止", fontSize = 13.sp)
+                }
             }
-            OutlinedButton(
-                onClick = onStop,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp)
-            ) {
-                Text("⏹ 停止", fontSize = 13.sp)
-            }
-        }
 
-        // 再生位置スライダー
-        if (playbackDurationMs > 0L) {
-            val posSec = (playbackPositionMs / 1000).toInt()
-            val durSec = (playbackDurationMs / 1000).toInt()
-            val posMin = posSec / 60; val posSec2 = posSec % 60
-            val durMin = durSec / 60; val durSec2 = durSec % 60
-            Slider(
-                value = if (playbackDurationMs > 0L) playbackPositionMs.toFloat() / playbackDurationMs else 0f,
-                onValueChange = { onSeek((it * playbackDurationMs).toInt()) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp)
-            )
-            Text(
-                "%02d:%02d / %02d:%02d".format(posMin, posSec2, durMin, durSec2),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(2.dp))
+            // 再生位置スライダー
+            if (playbackDurationMs > 0L) {
+                val posSec = (playbackPositionMs / 1000).toInt()
+                val durSec = (playbackDurationMs / 1000).toInt()
+                val posMin = posSec / 60; val posSec2 = posSec % 60
+                val durMin = durSec / 60; val durSec2 = durSec % 60
+                Slider(
+                    value = if (playbackDurationMs > 0L) playbackPositionMs.toFloat() / playbackDurationMs else 0f,
+                    onValueChange = { onSeek((it * playbackDurationMs).toInt()) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp)
+                )
+                Text(
+                    "%02d:%02d / %02d:%02d".format(posMin, posSec2, durMin, durSec2),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(2.dp))
+            }
         }
 
         Spacer(modifier = Modifier.height(4.dp))

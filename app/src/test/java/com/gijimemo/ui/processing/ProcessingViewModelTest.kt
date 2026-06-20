@@ -50,6 +50,10 @@ class ProcessingViewModelTest {
     private val settings: SettingsRepository = mockk()
     private val provider: LlmProvider = mockk()
     private val client: LlmClient = mockk()
+    private val wordGen: com.gijimemo.document.WordDocumentGenerator = mockk()
+    private val mdGen: com.gijimemo.document.MarkdownGenerator = mockk()
+    private val txtGen: com.gijimemo.document.TextGenerator = mockk()
+    private val emailShare: com.gijimemo.share.EmailShareService = mockk()
     private val context: android.content.Context = mockk(relaxed = true) {
         every { cacheDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
     }
@@ -119,7 +123,7 @@ class ProcessingViewModelTest {
             com.gijimemo.data.model.LlmProviderConfig.defaults().first { it.name == "OpenAI" }
         every { settings.useOnDeviceAsr } returns flowOf(true)
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
@@ -138,7 +142,7 @@ class ProcessingViewModelTest {
             LlmEvent.Complete("要約 完了", "model")
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
@@ -158,7 +162,7 @@ class ProcessingViewModelTest {
             LlmEvent.Error(LlmException.InvalidApiKey())
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
@@ -177,7 +181,7 @@ class ProcessingViewModelTest {
             LlmEvent.Complete("要約", "model")
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
@@ -194,7 +198,7 @@ class ProcessingViewModelTest {
             LlmEvent.Complete("1回目要約", "model")
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
         val phaseAfterFirst = vm.state.value.phase
@@ -221,7 +225,7 @@ class ProcessingViewModelTest {
             LlmEvent.Complete("マルチモーダル 結果", "model")
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
@@ -240,7 +244,7 @@ class ProcessingViewModelTest {
             LlmEvent.Complete("完了", "model")
         )
 
-        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, context)
+        val vm = ProcessingViewModel(mockSavedStateHandle(), repo, settings, provider, wordGen, mdGen, txtGen, emailShare, context)
         vm.start()
         advanceUntilIdle()
 
