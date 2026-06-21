@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -40,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.ui.recording.PlaybackState
-import com.gijimemo.ui.home.HomeViewModel
 import com.gijimemo.ui.home.ImportedAudioMeta
 
 /**
@@ -54,13 +55,15 @@ import com.gijimemo.ui.home.ImportedAudioMeta
 fun ImportReviewScreen(
     onTranscribe: (sessionId: String, lang: String) -> Unit,
     onCancel: () -> Unit,
-    viewModel: ImportReviewViewModel = hiltViewModel(),
-    // v0.7.2: HomeViewModel を共有し、インポート時のメタ情報 (SR/BR/ファイル名等) を参照。
-    homeViewModel: HomeViewModel = hiltViewModel()
+    viewModel: ImportReviewViewModel = hiltViewModel()
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
-    val importedMeta by homeViewModel.lastImportedMeta.collectAsStateWithLifecycle()
+    // v0.7.2: Singleton ImportedMetaStore を直接参照し、HomeScreen と同じインスタンスで
+    // メタ情報 (SR/BR/ファイル名等) を共有。NavBackStackEntry ごとに HomeViewModel が
+    // 別インスタンスになる問題を回避する。
+    val metaStore = androidx.hilt.navigation.compose.hiltViewModel<ImportedMetaStoreViewModel>()
+    val importedMeta by metaStore.meta.collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -71,9 +74,10 @@ fun ImportReviewScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // ─── 上部: タイトル + メタ情報 ────────────
             Column(
@@ -216,7 +220,7 @@ fun ImportReviewScreen(
                     Button(
                         onClick = {
                             viewModel.stopPlayback()
-                            homeViewModel.clearImportedMeta()
+                            metaStore.clear()
                             onTranscribe(viewModel.sessionId, "ja")
                         },
                         enabled = session != null,
@@ -234,7 +238,7 @@ fun ImportReviewScreen(
                     Button(
                         onClick = {
                             viewModel.stopPlayback()
-                            homeViewModel.clearImportedMeta()
+                            metaStore.clear()
                             onTranscribe(viewModel.sessionId, "zh")
                         },
                         enabled = session != null,
@@ -254,7 +258,7 @@ fun ImportReviewScreen(
                 // キャンセル: Session 削除 + ホームへ戻る
                 OutlinedButton(
                     onClick = {
-                        homeViewModel.clearImportedMeta()
+                        metaStore.clear()
                         viewModel.cancelImport(onCancel)
                     },
                     modifier = Modifier

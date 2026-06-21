@@ -37,19 +37,18 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repo: SessionRepository,
+    private val metaStore: ImportedMetaStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     val sessions: StateFlow<List<Session>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * 直近にインポートしたファイルのメタ情報。ImportReviewScreen で参照する。
-     * ファイル選択直後に set、ImportReviewScreen 表示中にのみ値を持つ。
-     */
-    private val _lastImportedMeta = MutableStateFlow<ImportedAudioMeta?>(null)
-    val lastImportedMeta: StateFlow<ImportedAudioMeta?> = _lastImportedMeta.asStateFlow()
+    /** v0.7.2: Singleton ImportedMetaStore への薄いファサード。
+     *  HomeViewModel の ViewModel インスタンスが画面ごとに違うため、
+     *  Singleton に委譲して HomeScreen ↔ ImportReviewScreen 間で共有する。 */
+    val lastImportedMeta: StateFlow<ImportedAudioMeta?> = metaStore.meta
 
-    fun clearImportedMeta() { _lastImportedMeta.value = null }
+    fun clearImportedMeta() = metaStore.clear()
 
     /** 起動時に TRANSCRIBING でスタックしたセッションを ERROR にリセット */
     init {
@@ -134,8 +133,8 @@ class HomeViewModel @Inject constructor(
                     status = SessionStatus.STOPPED
                 )
                 repo.save(session)
-                // v0.7.2: ImportReviewScreen で表示するメタ情報を StateFlow に流す
-                _lastImportedMeta.value = ImportedAudioMeta(
+                // v0.7.2: ImportReviewScreen で表示するメタ情報を Singleton ストアに流す
+                metaStore.set(ImportedAudioMeta(
                     fileName = originalDisplayName,
                     fileLocation = outFile.absolutePath,
                     sampleRate = sampleRate,
@@ -144,7 +143,7 @@ class HomeViewModel @Inject constructor(
                     fileSizeBytes = outFile.length(),
                     importedAtMs = System.currentTimeMillis(),
                     originalLastModifiedMs = originalLastModifiedMs
-                )
+                ))
                 onImported(id)
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "importAudioFile failed", e)
