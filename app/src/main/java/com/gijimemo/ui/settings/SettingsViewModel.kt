@@ -6,7 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
+import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
+import com.gijimemo.whisper.ModelManager
+import com.gijimemo.whisper.WhisperModelInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +29,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
+    private val sessionRepo: SessionRepository,
+    private val modelManager: ModelManager,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -58,6 +64,24 @@ class SettingsViewModel @Inject constructor(
 
     val decodeEnabled: StateFlow<Boolean> = settings.decodeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    // ─── 文字起こしモデル選択 ────────────────────────
+    val availableModels: List<WhisperModelInfo> = modelManager.availableModels
+    val whisperModel: StateFlow<String> = settings.whisperModel
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "ggml-tiny-q5_1.bin")
+    fun setWhisperModel(v: String) = viewModelScope.launch { settings.setWhisperModel(v) }
+
+    val cloudAsrProvider: StateFlow<String> = settings.cloudAsrProvider
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "openai")
+    fun setCloudAsrProvider(v: String) = viewModelScope.launch { settings.setCloudAsrProvider(v) }
+
+    companion object {
+        val CLOUD_ASR_PROVIDERS = listOf(
+            "openai" to "OpenAI Whisper",
+            "google" to "Google Speech",
+            "ollama" to "Ollama (実験的)"
+        )
+    }
 
     val themeMode: StateFlow<Int> = settings.themeMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
@@ -185,6 +209,24 @@ class SettingsViewModel @Inject constructor(
 
     fun addRecipient(email: String) = viewModelScope.launch { settings.addRecipient(email) }
     fun removeRecipient(email: String) = viewModelScope.launch { settings.removeRecipient(email) }
+
+    /** 指定ステータスのセッションを全件削除 */
+    private suspend fun deleteSessionsByStatus(status: SessionStatus): Int {
+        val sessions = sessionRepo.observeAll().first()
+        val targets = sessions.filter { it.status == status }
+        for (s in targets) {
+            sessionRepo.delete(s.id)
+        }
+        return targets.size
+    }
+
+    fun deleteErrorSessions(onResult: (Int) -> Unit) = viewModelScope.launch {
+        onResult(deleteSessionsByStatus(SessionStatus.ERROR))
+    }
+
+    fun deleteStoppedSessions(onResult: (Int) -> Unit) = viewModelScope.launch {
+        onResult(deleteSessionsByStatus(SessionStatus.STOPPED))
+    }
 
     fun setModel(model: String) {
         val name = _selectedProviderName.value ?: return

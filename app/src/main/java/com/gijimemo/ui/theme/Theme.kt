@@ -8,14 +8,11 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 /**
- * GijiMemo 無印良品風テーマ
- *
- * コンセプト: 「素材感」「余白」「不要なものを削ぐ」
- * - ライトモード: オフホワイト背景 × チャコール文字
- * - フラットデザイン: 陰影を極力排除、自然な色合い
- * - Muji Red (#CC0000) を最小限のアクセントに
+ * GijiMemo テーマ
+ * - ライトモード: 全テキスト黒(#000000)
+ * - ダークモード: 全テキスト白系統
  */
-private val MujiLightColorScheme = lightColorScheme(
+private val AppLightColorScheme = lightColorScheme(
     primary = MujiRed,
     onPrimary = Surface,
     primaryContainer = MujiRedLight,
@@ -23,10 +20,8 @@ private val MujiLightColorScheme = lightColorScheme(
 
     secondary = SurfaceVariant,
     onSecondary = TextPrimary,
-    secondaryContainer = SurfaceVariant,
-    onSecondaryContainer = TextSecondary,
 
-    tertiary = TextTertiary,
+    tertiary = TextPrimary,
     onTertiary = Surface,
 
     background = Background,
@@ -35,16 +30,15 @@ private val MujiLightColorScheme = lightColorScheme(
     surface = Surface,
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVariant,
-    onSurfaceVariant = TextSecondary,
+    onSurfaceVariant = TextPrimary,  // ← 黒に統一
 
     outline = Outline,
-    outlineVariant = Outline,
 
     error = Error,
     onError = Surface
 )
 
-private val MujiDarkColorScheme = darkColorScheme(
+private val AppDarkColorScheme = darkColorScheme(
     primary = MujiRed,
     onPrimary = DarkBackground,
     primaryContainer = MujiRedDark,
@@ -52,10 +46,8 @@ private val MujiDarkColorScheme = darkColorScheme(
 
     secondary = DarkSurface,
     onSecondary = DarkTextPrimary,
-    secondaryContainer = DarkSurface,
-    onSecondaryContainer = DarkTextSecondary,
 
-    tertiary = DarkTextSecondary,
+    tertiary = DarkTextPrimary,
     onTertiary = DarkBackground,
 
     background = DarkBackground,
@@ -63,11 +55,10 @@ private val MujiDarkColorScheme = darkColorScheme(
 
     surface = DarkSurface,
     onSurface = DarkTextPrimary,
-    surfaceVariant = DarkSurface,
+    surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkTextSecondary,
 
-    outline = DarkSurface,
-    outlineVariant = DarkSurface,
+    outline = DarkSurfaceVariant,
 
     error = MujiRed,
     onError = DarkBackground
@@ -86,6 +77,6 @@ fun GijiMemoTheme(
         2 -> true
         else -> isSystemInDarkTheme()
     }
-    val colorScheme = if (isDark) MujiDarkColorScheme else MujiLightColorScheme
+    val colorScheme = if (isDark) AppDarkColorScheme else AppLightColorScheme
     MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

@@ -81,7 +81,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val id = UUID.randomUUID().toString()
-                val outFile = File(context.filesDir, "audio/$id.mp3")
+                // URI の MIME タイプから適切な拡張子を決定（実態と合わない .mp3 固定を修正）
+                val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
+                val ext = when {
+                    mimeType.contains("m4a") || mimeType.contains("mp4") || mimeType.contains("aac") -> "m4a"
+                    mimeType.contains("mpeg") || mimeType.contains("mp3") -> "mp3"
+                    mimeType.contains("wav") -> "wav"
+                    mimeType.contains("ogg") -> "ogg"
+                    mimeType.contains("flac") -> "flac"
+                    mimeType.contains("webm") -> "webm"
+                    else -> "mp3"
+                }
+                val outFile = File(context.filesDir, "audio/$id.$ext")
                 outFile.parentFile?.mkdirs()
                 // 元ファイルの表示名 (OpenableColumns.DISPLAY_NAME) を取得
                 val originalDisplayName = withContext(Dispatchers.IO) {
@@ -217,7 +228,7 @@ class HomeViewModel @Inject constructor(
 /**
  * v0.7.2: インポートした音声ファイルのメタ情報。ImportReviewScreen で表示。
  * - fileName: 元の表示ファイル名 (例: "meeting_2024.mp3")
- * - fileLocation: 内部保存先パス (例: "/data/data/.../files/audio/{uuid}.mp3")
+ * - fileLocation: 内部保存先パス (例: "/data/data/.../files/audio/{uuid}.m4a")
  * - sampleRate: Hz (0 = 不明)
  * - bitRate: bps (0 = 不明)
  * - durationMs: ミリ秒

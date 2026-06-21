@@ -15,8 +15,8 @@ android {
         applicationId = "com.gijimemo"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
-        versionName = "0.7.2"
+        versionCode = 31
+        versionName = "0.7.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "VERSION_NAME", "\"$versionName\"")
     }

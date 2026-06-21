@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,9 @@ fun ImportReviewScreen(
     // 別インスタンスになる問題を回避する。
     val metaStore = androidx.hilt.navigation.compose.hiltViewModel<ImportedMetaStoreViewModel>()
     val importedMeta by metaStore.meta.collectAsStateWithLifecycle()
+
+    // v0.7.3: 画面離脱時に再生中の音声を停止
+    DisposableEffect(Unit) { onDispose { viewModel.stopPlayback() } }
 
     Box(
         modifier = Modifier

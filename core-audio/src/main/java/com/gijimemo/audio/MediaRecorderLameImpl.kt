@@ -158,8 +158,10 @@ class MediaRecorderLameImpl @Inject constructor(
             MediaRecorder()
         }
         rec.apply {
-            // Phase 2: VOICE_COMMUNICATION はプラットフォームレベルで AEC + NS が有効になる
-            setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            // VOICE_RECOGNITION: 音声認識向け。プラットフォーム AGC を無効化し、
+            // 生のマイク信号を最大ゲインで取得。人の声を最も大きく録音できる。
+            // VOICE_COMMUNICATION は音量が小さくなりすぎる問題があった。
+            setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioSamplingRate(config.sampleRate)
@@ -190,7 +192,7 @@ class MediaRecorderLameImpl @Inject constructor(
             MediaRecorder()
         }
         rec.apply {
-            setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioSamplingRate(config.sampleRate)

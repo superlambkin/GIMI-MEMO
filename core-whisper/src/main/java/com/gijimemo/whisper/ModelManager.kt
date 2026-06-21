@@ -39,44 +39,43 @@ class ModelManager @Inject constructor(
 
     /** Available models. First entry is the default. */
     val availableModels: List<WhisperModelInfo> = listOf(
-        // v0.7.2〜: 標準は Q5_1 量子化 (約57MB、whisper.cpp 1.7.4 時点で利用可能な
-        // 最軽量の量子化モデル)。GGUF 形式は当時未提供のため GGML .bin 形式を採用。
+        // v0.7.4: 5モデルを選択可能に（tiny / base / small / medium / large Q5_1量子化）
         WhisperModelInfo(
-            name = "ggml-base-q5_1.bin",
-            displayName = "標準 (Q5_1 base, ~57MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
-            sizeBytes = 59707625L,
-            description = "APK同梱: 4bit級量子化・推奨",
+            name = "ggml-tiny-q5_1.bin",
+            displayName = "超高速 (Q5_1 tiny, ~31MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+            sizeBytes = 32152673L,
+            description = "APK同梱: 最速・推奨",
             isBundled = true
         ),
         WhisperModelInfo(
-            name = "ggml-base.bin",
-            displayName = "高精度 (FP16 base, ~141MB) ※旧版",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-            sizeBytes = 147951465L,
-            description = "旧FP16。ダウンロード経路でのみ提供",
+            name = "ggml-base-q5_1.bin",
+            displayName = "高速 (Q5_1 base, ~57MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+            sizeBytes = 59707625L,
+            description = "ダウンロード: 高精度",
             isBundled = false
         ),
         WhisperModelInfo(
-            name = "ggml-tiny.bin",
-            displayName = "高速 (FP16 tiny, ~75MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-            sizeBytes = 77691713L,
-            description = "ダウンロード: 最速、精度低め"
+            name = "ggml-small-q5_1.bin",
+            displayName = "標準 (Q5_1 small, ~184MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+            sizeBytes = 184L * 1024 * 1024,
+            description = "ダウンロード: 精度・速度のバランス"
         ),
         WhisperModelInfo(
-            name = "ggml-base-q8_0.bin",
-            displayName = "高精度 (Q8_0 base, ~78MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin",
-            sizeBytes = 78L * 1024 * 1024,
-            description = "ダウンロード: 8bit量子化・精度重視"
+            name = "ggml-medium-q5_0.bin",
+            displayName = "高精度 (Q5_0 medium, ~346MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+            sizeBytes = 346L * 1024 * 1024,
+            description = "ダウンロード: 高精度"
         ),
         WhisperModelInfo(
-            name = "ggml-tiny-q5_1.bin",
-            displayName = "超軽量 (Q5_1 tiny, ~30MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
-            sizeBytes = 30L * 1024 * 1024,
-            description = "最速、短い録音向け"
+            name = "ggml-large-v3-q5_0.bin",
+            displayName = "最高精度 (Q5_0 large-v3, ~529MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
+            sizeBytes = 529L * 1024 * 1024,
+            description = "ダウンロード: 最大精度・低速"
         ),
     )
 

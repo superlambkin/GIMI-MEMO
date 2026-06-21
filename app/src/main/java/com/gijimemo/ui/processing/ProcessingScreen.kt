@@ -1,5 +1,6 @@
 package com.gijimemo.ui.processing
 
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -35,9 +36,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -67,6 +71,9 @@ fun ProcessingScreen(
 
     // 初回のみ処理開始
     LaunchedEffect(Unit) { viewModel.start() }
+
+    // v0.7.3: 画面離脱時に再生中の音声を停止
+    DisposableEffect(Unit) { onDispose { viewModel.stopAudio() } }
 
     // 完了状態での自動遷移は行わない。ユーザーが「戻る」を押した時に遷移する。
 
@@ -106,7 +113,9 @@ fun ProcessingScreen(
                     totalChunks = state.totalChunks,
                     completedChunks = state.completedChunks,
                     splitTimeMs = state.splitTimeMs,
-                    chunkTimeEstimateMs = state.chunkTimeEstimateMs
+                    chunkTimeEstimateMs = state.chunkTimeEstimateMs,
+                    useGpu = state.useGpu,
+                    threadCount = state.threadCount
                 )
             }
             ProcessingPhase.TRANSCRIBED -> {
@@ -190,7 +199,10 @@ private fun SummaryOptionsDialog(
         "class" to "授業",
         "interview" to "取材",
         "chat" to "雑談",
-        "dr" to "DR"
+        "dr" to "DR",
+        "media" to "メディア",
+        "custom1" to "カスタム1",
+        "custom2" to "カスタム2"
     )
     val typeLabel = typeOptions.first { it.first == selectedType }.second
 
@@ -287,8 +299,36 @@ private fun TranscribingContent(
     totalChunks: Int = 0,
     completedChunks: Int = 0,
     splitTimeMs: Long = 0L,
-    chunkTimeEstimateMs: Long = 0L
+    chunkTimeEstimateMs: Long = 0L,
+    useGpu: Boolean = false,
+    threadCount: Int = 0
 ) {
+    // v0.7.2: システムメトリクス (CPU/メモリ/GPU) を 1秒間隔で取得
+    // 注意: data class を mutableStateOf で持つと、内容が同じ場合に State 変更が
+    // 通知されないため、個別 IntState で管理して確実に再合成をトリガーする。
+    var cpuPct by remember { mutableIntStateOf(-1) }
+    var rssMb by remember { mutableLongStateOf(0L) }
+    var totalMemMb by remember { mutableLongStateOf(0L) }
+    var heapUsedMb by remember { mutableLongStateOf(0L) }
+    var heapMaxMb by remember { mutableLongStateOf(0L) }
+    var openClAvail by remember { mutableStateOf(false) }
+    var gpuPct by remember { mutableIntStateOf(-1) }
+    var gpuSourceText by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val m = SystemMetricsReader.readAll()
+            cpuPct = if (m.cpuUsage >= 0f) (m.cpuUsage * 100).toInt() else -1
+            rssMb = m.rssMb
+            totalMemMb = m.totalMemMb
+            heapUsedMb = m.heapUsedMb
+            heapMaxMb = m.heapMaxMb
+            openClAvail = m.openClAvailable
+            gpuPct = if (m.gpuUsage >= 0f) (m.gpuUsage * 100).toInt() else -1
+            gpuSourceText = m.gpuSource
+            Log.d("TranscribingMetrics", "cpu=${cpuPct}% rss=${rssMb}MB heap=${heapUsedMb}/${heapMaxMb}MB openCl=$openClAvail gpu=${gpuPct}%")
+            kotlinx.coroutines.delay(1000)
+        }
+    }
     var elapsedSec by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -305,7 +345,7 @@ private fun TranscribingContent(
 
     val phaseMessage = when {
         useOnDevice && elapsedSec < 3 -> "音声ファイルを読み込み中..."
-        useOnDevice && elapsedSec < 30 -> "ローカル Whisper モデル (base, 141MB) を読み込み中..."
+        useOnDevice && elapsedSec < 30 -> "ローカル Whisper モデル (base Q5_1, 57MB) を読み込み中..."
         useOnDevice -> "文字起こし中..."
         else -> "クラウドで文字起こし中..."
     }
@@ -334,6 +374,54 @@ private fun TranscribingContent(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(Modifier.height(16.dp))
+
+        // v0.7.2: 経過時間を大きく表示 (ユーザーが「何も表示されてない」と
+        // 感じる問題を解消。文字起こし中でも処理の進捗が分かるようにする)
+        Text(
+            text = "%02d:%02d".format(elapsedSec / 60, elapsedSec % 60),
+            fontSize = 48.sp,
+            fontWeight = FontWeight.Light,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 2.sp
+        )
+        if (remainingMs > 0L) {
+            Text(
+                text = "推定残り: %02d:%02d".format(remainingMs / 1000 / 60, (remainingMs / 1000) % 60),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // v0.7.2: パフォーマンス情報を小さく表示 (スレッド/GPU状態)
+        if (useOnDevice || threadCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "スレッド: ${if (threadCount > 0) "${threadCount}個" else "計算中..."} · GPU設定: ${if (useGpu) "ON" else "OFF"} · OpenCL: ${if (openClAvail) "可" else "不可"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // v0.7.2: リアルタイム CPU/メモリ/GPU 使用率
+        Spacer(Modifier.height(12.dp))
+        val cpuPctText = if (cpuPct >= 0) "${cpuPct}%" else "N/A"
+        val memPctText = if (totalMemMb > 0L) "物理:${(rssMb * 100 / totalMemMb).toInt()}% (${rssMb}/${totalMemMb}MB)" else "N/A"
+        val heapPctText = if (heapMaxMb > 0L) "Java:${(heapUsedMb * 100 / heapMaxMb).toInt()}% (${heapUsedMb}/${heapMaxMb}MB)" else "N/A"
+        val gpuPctText = if (gpuPct >= 0) "${gpuPct}%" else "N/A"
+        Text(
+            text = "CPU: $cpuPctText · $memPctText · $heapPctText · GPU: $gpuPctText",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (gpuSourceText.isNotEmpty() && gpuSourceText != "unavailable" && gpuSourceText != "no-devfreq") {
+            Text(
+                text = "GPU情報: ${gpuSourceText}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
 

@@ -32,6 +32,7 @@ class SettingsDataStore(private val context: Context) {
     private val keyCustom2Template = stringPreferencesKey("template_custom2")
     private val keyUseOnDeviceAsr = booleanPreferencesKey("use_on_device_asr")
     private val keyWhisperModel = stringPreferencesKey("whisper_model")
+    private val keyCloudAsrProvider = stringPreferencesKey("cloud_asr_provider")
     private val keyAutoProvider = booleanPreferencesKey("auto_provider")
     private val keyDecodeEnabled = booleanPreferencesKey("decode_enabled")
     private val keyPerfFactor = floatPreferencesKey("transcribe_perf_factor")
@@ -172,7 +173,7 @@ Q: （質問） A: （回答）
 （箇条書き）
 # 感想・考察
 （会話に対する所感と今後に活かせる点）"""
-        "media" -> ""
+        "media" -> "以下の形式で出力してください。\n\n【メディア配信用】\n# タイトル\n\n## 要約（100文字以内）\n\n## 本文\n- 箇条書きで主要ポイントを列挙\n\n## キーフレーズ\n- 印象的な引用や重要発言を抜粋\n\n## ハッシュタグ\n#キーワード1 #キーワード2"
         "custom1" -> ""
         "custom2" -> ""
         else -> """以下の会議の文字起こしを要約してください。
@@ -211,9 +212,13 @@ Q: （質問） A: （回答）
 
     val whisperModel: Flow<String> = context.dataStore.data.map { it[keyWhisperModel] ?: "ggml-base-q5_1.bin" }
 
+    val cloudAsrProvider: Flow<String> = context.dataStore.data.map { it[keyCloudAsrProvider] ?: "openai" }
+
     suspend fun setUseOnDeviceAsr(v: Boolean) = context.dataStore.edit { it[keyUseOnDeviceAsr] = v }
 
     suspend fun setWhisperModel(v: String) = context.dataStore.edit { it[keyWhisperModel] = v }
+
+    suspend fun setCloudAsrProvider(v: String) = context.dataStore.edit { it[keyCloudAsrProvider] = v }
 
     // ─── 自動プロバイダ選択 (API Key 存在ベース) ────────────────────
     /** true (デフォルト) なら API Key 設定済のプロバイダを優先順位に従って自動選択。

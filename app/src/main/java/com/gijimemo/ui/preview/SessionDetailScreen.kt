@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +70,9 @@ fun SessionDetailScreen(
     var showResummaryDialog by remember { mutableStateOf(false) }
     var resummaryType by remember { mutableStateOf("minutes") }
     val resummaryDefaultMaxChars = if (state.markdown.length > 0) {
+
+    // v0.7.3: 画面離脱時に再生中の音声を停止
+    DisposableEffect(Unit) { onDispose { viewModel.stopAudio() } }
         val tenth = state.markdown.length / 10 / 100 * 100
         if (state.markdown.length <= 500) state.markdown.length.coerceAtLeast(100)
         else tenth.coerceAtLeast(100)

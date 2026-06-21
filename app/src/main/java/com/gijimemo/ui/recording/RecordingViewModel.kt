@@ -101,6 +101,12 @@ class RecordingViewModel @Inject constructor(
     private val _playbackState = MutableStateFlow(PlaybackState.Idle)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    private val _playbackPosition = MutableStateFlow(0L)
+    val playbackPosition: StateFlow<Long> = _playbackPosition.asStateFlow()
+    private val _playbackDuration = MutableStateFlow(0L)
+    val playbackDuration: StateFlow<Long> = _playbackDuration.asStateFlow()
+    private var positionJob: kotlinx.coroutines.Job? = null
+
     private var player: MediaPlayer? = null
 
     // 录音中需要保持 PFD 不关闭，录音完成 + 更新 IS_PENDING 后再关闭
@@ -343,9 +349,9 @@ class RecordingViewModel @Inject constructor(
         if (location.isBlank()) return
         Log.d(TAG, "startPlayback: location=$location")
         releasePlayer()
+        _playbackPosition.value = 0L; _playbackDuration.value = 0L
         try {
             val mp = MediaPlayer().apply {
-                // 兼容 URI 和 文件路径
                 if (location.startsWith("content://") || location.startsWith("file://")) {
                     setDataSource(context, Uri.parse(location))
                 } else {
@@ -353,16 +359,25 @@ class RecordingViewModel @Inject constructor(
                 }
                 setOnCompletionListener {
                     _playbackState.value = PlaybackState.Idle
+                    positionJob?.cancel()
                 }
                 setOnErrorListener { _, what, extra ->
                     Log.e("GijiMemo", "MediaPlayer error: what=$what extra=$extra location=$location")
                     _playbackState.value = PlaybackState.Idle
+                    positionJob?.cancel()
                     true
                 }
                 prepare()
                 start()
             }
             player = mp
+            _playbackDuration.value = mp.duration.toLong()
+            positionJob = viewModelScope.launch {
+                while (true) {
+                    player?.let { if (it.isPlaying) _playbackPosition.value = it.currentPosition.toLong() }
+                    kotlinx.coroutines.delay(250)
+                }
+            }
             _playbackState.value = PlaybackState.Playing
         } catch (e: Exception) {
             Log.e("GijiMemo", "再生開始失敗 (location=$location): ${e.message}", e)
@@ -389,8 +404,19 @@ class RecordingViewModel @Inject constructor(
     }
 
     fun stopPlayback() {
+        positionJob?.cancel()
         releasePlayer()
         _playbackState.value = PlaybackState.Idle
+        _playbackPosition.value = 0L
+    }
+
+    fun seekAudio(positionMs: Int) {
+        player?.let {
+            if (positionMs in 0..it.duration) {
+                it.seekTo(positionMs)
+                _playbackPosition.value = positionMs.toLong()
+            }
+        }
     }
 
     private fun releasePlayer() {

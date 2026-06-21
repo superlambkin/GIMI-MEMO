@@ -2,6 +2,7 @@ package com.gijimemo.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -56,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.data.model.LlmCallMode
@@ -73,6 +75,7 @@ fun SettingsScreen(
     val selected by viewModel.selectedProviderName.collectAsStateWithLifecycle()
     val prompt by viewModel.promptTemplate.collectAsStateWithLifecycle()
     val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -116,6 +119,7 @@ fun SettingsScreen(
                 Text(
                     text = selected ?: "未選択",
                     style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedButton(
@@ -129,7 +133,7 @@ fun SettingsScreen(
             ) {
                 viewModel.configuredProviders.forEach { p ->
                     DropdownMenuItem(
-                        text = { Text(p.name) },
+                        text = { Text(p.name, color = MaterialTheme.colorScheme.onSurface) },
                         onClick = { viewModel.selectProvider(p.name); providerExpanded = false }
                     )
                 }
@@ -151,7 +155,7 @@ fun SettingsScreen(
                 if (models.isNotEmpty()) {
                     var modelExpanded by remember { mutableStateOf(false) }
                     Spacer(Modifier.height(8.dp))
-                    SettingsLabel("デフォルトモデル")
+                    SettingsLabel("要約用モデル (LLM)")
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -160,6 +164,7 @@ fun SettingsScreen(
                         Text(
                             text = currentModel.ifBlank { currentProvider.defaultModel },
                             style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedButton(
@@ -173,7 +178,7 @@ fun SettingsScreen(
                     ) {
                         models.forEach { m ->
                             DropdownMenuItem(
-                                text = { Text(m) },
+                                text = { Text(m, color = MaterialTheme.colorScheme.onSurface) },
                                 onClick = { viewModel.setModel(m); modelExpanded = false }
                             )
                         }
@@ -282,6 +287,61 @@ fun SettingsScreen(
             ) {
                 Text("1MB", style = MaterialTheme.typography.bodySmall)
                 Text("24MB", style = MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(Modifier.height(12.dp))
+            // ローカルWhisperモデル選択（文字起こし用）
+            SettingsLabel("文字起こし用モデル (Whisper)")
+            val currentModel by viewModel.whisperModel.collectAsStateWithLifecycle()
+            val models = viewModel.availableModels
+            var expandedModel by remember { mutableStateOf(false) }
+            val currentLabel = models.find { it.name == currentModel }?.displayName ?: currentModel
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(currentLabel, style = MaterialTheme.typography.bodyMedium)
+                Box {
+                    OutlinedButton(onClick = { expandedModel = true }, modifier = Modifier.heightIn(min = 36.dp)) {
+                        Text("変更")
+                    }
+                    DropdownMenu(expanded = expandedModel, onDismissRequest = { expandedModel = false }) {
+                        models.forEach { info ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(info.displayName, style = MaterialTheme.typography.bodyMedium)
+                                        Text(info.description, style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                onClick = { viewModel.setWhisperModel(info.name); expandedModel = false }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            // クラウド文字起こしプロバイダ選択
+            SettingsLabel("クラウドASRプロバイダ")
+            val currentAsrProvider by viewModel.cloudAsrProvider.collectAsStateWithLifecycle()
+            var expandedAsr by remember { mutableStateOf(false) }
+            val asrLabel = SettingsViewModel.CLOUD_ASR_PROVIDERS.find { it.first == currentAsrProvider }?.second ?: currentAsrProvider
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(asrLabel, style = MaterialTheme.typography.bodyMedium)
+                Box {
+                    OutlinedButton(onClick = { expandedAsr = true }, modifier = Modifier.heightIn(min = 36.dp)) {
+                        Text("変更")
+                    }
+                    DropdownMenu(expanded = expandedAsr, onDismissRequest = { expandedAsr = false }) {
+                        SettingsViewModel.CLOUD_ASR_PROVIDERS.forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { viewModel.setCloudAsrProvider(key); expandedAsr = false }
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -515,7 +575,62 @@ fun SettingsScreen(
             )
         }
 
-        // ─── ⑦ 読み上げ設定 ──────────────────────────
+        // ─── ⑦ データ管理 ────────────────────────────
+        var deleteTarget by remember { mutableStateOf("") } // "" / "error" / "stopped"
+        SettingsSectionCard(title = "データ管理", icon = { Icon(Icons.Filled.Close, contentDescription = null) }) {
+            OutlinedButton(
+                onClick = { deleteTarget = "error" },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)
+            ) {
+                Text("失敗データを一括削除", fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { deleteTarget = "stopped" },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)
+            ) {
+                Text("停止済みデータを一括削除", fontSize = 13.sp)
+            }
+        }
+        if (deleteTarget == "error") {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = "" },
+                title = { Text("確認") },
+                text = { Text("ステータス「失敗」のセッションを全て削除します。\nこの操作は元に戻せません。") },
+                confirmButton = {
+                    Button(onClick = {
+                        viewModel.deleteErrorSessions { count ->
+                            android.widget.Toast.makeText(context, "${count}件削除しました", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        deleteTarget = ""
+                    }) { Text("削除") }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { deleteTarget = "" }) { Text("キャンセル") }
+                }
+            )
+        }
+        if (deleteTarget == "stopped") {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = "" },
+                title = { Text("確認") },
+                text = { Text("ステータス「停止済み」のセッションを全て削除します。\nこの操作は元に戻せません。") },
+                confirmButton = {
+                    Button(onClick = {
+                        viewModel.deleteStoppedSessions { count ->
+                            android.widget.Toast.makeText(context, "${count}件削除しました", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        deleteTarget = ""
+                    }) { Text("削除") }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { deleteTarget = "" }) { Text("キャンセル") }
+                }
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // ─── ⑧ 読み上げ設定 ──────────────────────────
         SettingsSectionCard(title = "読み上げ設定", icon = { Icon(Icons.Filled.VolumeUp, contentDescription = null) }) {
             val ttsRate by viewModel.ttsSpeechRate.collectAsStateWithLifecycle()
             val ttsPitch by viewModel.ttsPitch.collectAsStateWithLifecycle()

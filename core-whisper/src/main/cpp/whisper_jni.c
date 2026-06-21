@@ -9,16 +9,27 @@
 #include <android/log.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/resource.h>
 #include "whisper.h"
 #include "ggml.h"
 
 #define TAG "WhisperJNI"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// ─── setThreadPriority ──────────────────────────────────────────────────────────────────────────
+// v0.7.4: バックグラウンドスレッドを含む全スレッドに高い優先度を設定し、
+// ビッグコアへの割り当てを促進する。SCHED_BATCH はバッチ計算向け。
+static void set_high_priority(void) {
+    // nice 値を下げて優先度を上げる (-20 = 最高, 19 = 最低)
+    setpriority(PRIO_PROCESS, 0, -10);
+    // SCHED_FIFO / SCHED_RR は Android で制限されていることが多いため、
+    // リアルタイム優先度は設定せず nice 値のみでビッグコア割り当てを促進
+}
+
 // ─── initContext ────────────────────────────────────────────────────────────────────────────────
-// v0.7.2: use_gpu パラメータを追加。Whisper+要約経路でのみ true にして OpenCL/GPU を使う。
 
 JNIEXPORT jlong JNICALL
 Java_com_gijimemo_whisper_WhisperJni_initContext(
@@ -28,13 +39,22 @@ Java_com_gijimemo_whisper_WhisperJni_initContext(
     const char *model_path = (*env)->GetStringUTFChars(env, model_path_str, NULL);
     LOGI("Loading model from: %s (use_gpu=%d)", model_path, (int)use_gpu);
 
-    // whisper_context_params で GPU フラグを設定 (whisper.cpp 1.5+ で対応)
     struct whisper_context_params cparams = whisper_context_default_params();
     cparams.use_gpu = (bool)use_gpu;
 
     struct whisper_context *ctx = whisper_init_from_file_with_params(model_path, cparams);
     if (!ctx) {
-        LOGE("Failed to load model: %s", model_path);
+        LOGE("Failed to load model: %s (use_gpu=%d)", model_path, (int)use_gpu);
+        if (use_gpu) {
+            LOGW("GPU init failed, falling back to CPU");
+            cparams.use_gpu = false;
+            ctx = whisper_init_from_file_with_params(model_path, cparams);
+            if (ctx) {
+                LOGI("CPU fallback succeeded");
+            } else {
+                LOGE("CPU fallback also failed: %s", model_path);
+            }
+        }
     }
 
     (*env)->ReleaseStringUTFChars(env, model_path_str, model_path);
@@ -57,25 +77,33 @@ Java_com_gijimemo_whisper_WhisperJni_freeContext(
 }
 
 // ─── fullTranscribe ────────────────────────────────────────────────────────────────────────────
-// Takes PCM float data (16kHz mono, normalized -1.0..1.0) and runs transcription.
+// v0.7.4: vad_model_path パラメータ追加 + スレッド優先度設定
 
 JNIEXPORT void JNICALL
 Java_com_gijimemo_whisper_WhisperJni_fullTranscribe(
         JNIEnv *env, jobject thiz, jlong context_ptr, jint num_threads,
-        jstring language_str, jfloatArray audio_data) {
+        jstring language_str, jfloatArray audio_data,
+        jstring vad_model_path_str) {
     (void)thiz;
 
     struct whisper_context *ctx = (struct whisper_context *)context_ptr;
     jfloat *audio_arr = (*env)->GetFloatArrayElements(env, audio_data, NULL);
     jsize audio_len = (*env)->GetArrayLength(env, audio_data);
 
-    // language_str may be null (= auto detect) or "ja" / "zh" / "en" etc.
     const char *language = NULL;
     if (language_str != NULL) {
         language = (*env)->GetStringUTFChars(env, language_str, NULL);
     }
-    LOGI("fullTranscribe: language=%s threads=%d samples=%d",
-         language ? language : "auto", (int)num_threads, (int)audio_len);
+    const char *vad_model_path = NULL;
+    if (vad_model_path_str != NULL) {
+        vad_model_path = (*env)->GetStringUTFChars(env, vad_model_path_str, NULL);
+    }
+    LOGI("fullTranscribe: language=%s threads=%d samples=%d vad=%s",
+         language ? language : "auto", (int)num_threads, (int)audio_len,
+         vad_model_path ? vad_model_path : "off");
+
+    // v0.7.4: スレッド優先度設定 → ビッグコア割り当て促進
+    set_high_priority();
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_realtime   = false;
@@ -83,16 +111,14 @@ Java_com_gijimemo_whisper_WhisperJni_fullTranscribe(
     params.print_timestamps = false;
     params.print_special    = false;
     params.translate        = false;
-    // NULL ならデフォルト ("auto") として whisper が言語検出する。
     params.language         = language;
     params.n_threads        = num_threads;
     params.offset_ms        = 0;
     params.no_context       = true;
     params.single_segment   = false;
-    // v0.7.2: VAD を有効化。silero-vad モデル未指定のため whisper.cpp 内蔵の
-    // 簡易VAD フィルタが無音区間をスキップし、推論速度が向上する。
-    params.vad              = true;
-    params.vad_model_path   = NULL;
+    // v0.7.4: VAD 有効化（vad_model_path が NULL でなければ）
+    params.vad              = (vad_model_path != NULL);
+    params.vad_model_path   = vad_model_path;
 
     whisper_reset_timings(ctx);
 
@@ -105,17 +131,20 @@ Java_com_gijimemo_whisper_WhisperJni_fullTranscribe(
     if (language != NULL) {
         (*env)->ReleaseStringUTFChars(env, language_str, language);
     }
+    if (vad_model_path != NULL) {
+        (*env)->ReleaseStringUTFChars(env, vad_model_path_str, vad_model_path);
+    }
 }
 
 // ─── fullTranscribeChunked ──────────────────────────────────────────────────────────────────
-// v0.7.2: 指定された時間窓 (offset_ms / duration_ms) のみを文字起こしする。
-// 30秒単位分割 + 2秒オーバーラップ処理の Kotlin 側ループから呼ばれる。
+// v0.7.4: vad_model_path パラメータ追加 + スレッド優先度設定
 
 JNIEXPORT void JNICALL
 Java_com_gijimemo_whisper_WhisperJni_fullTranscribeChunked(
         JNIEnv *env, jobject thiz, jlong context_ptr, jint num_threads,
         jstring language_str, jfloatArray audio_data,
-        jint offset_ms, jint duration_ms) {
+        jint offset_ms, jint duration_ms,
+        jstring vad_model_path_str) {
     (void)thiz;
 
     struct whisper_context *ctx = (struct whisper_context *)context_ptr;
@@ -126,9 +155,16 @@ Java_com_gijimemo_whisper_WhisperJni_fullTranscribeChunked(
     if (language_str != NULL) {
         language = (*env)->GetStringUTFChars(env, language_str, NULL);
     }
-    LOGI("fullTranscribeChunked: language=%s threads=%d samples=%d offset=%dms duration=%dms",
+    const char *vad_model_path = NULL;
+    if (vad_model_path_str != NULL) {
+        vad_model_path = (*env)->GetStringUTFChars(env, vad_model_path_str, NULL);
+    }
+    LOGI("fullTranscribeChunked: language=%s threads=%d samples=%d offset=%dms duration=%dms vad=%s",
          language ? language : "auto", (int)num_threads, (int)audio_len,
-         (int)offset_ms, (int)duration_ms);
+         (int)offset_ms, (int)duration_ms,
+         vad_model_path ? vad_model_path : "off");
+
+    set_high_priority();
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_realtime   = false;
@@ -138,14 +174,12 @@ Java_com_gijimemo_whisper_WhisperJni_fullTranscribeChunked(
     params.translate        = false;
     params.language         = language;
     params.n_threads        = num_threads;
-    // 窓指定: Kotlin 側で計算済みの offset/duration をそのまま使用
     params.offset_ms        = offset_ms;
     params.duration_ms      = duration_ms;
     params.no_context       = true;
     params.single_segment   = false;
-    // VAD 有効化 (fullTranscribe と同じ設定)
-    params.vad              = true;
-    params.vad_model_path   = NULL;
+    params.vad              = (vad_model_path != NULL);
+    params.vad_model_path   = vad_model_path;
 
     whisper_reset_timings(ctx);
 
@@ -157,6 +191,9 @@ Java_com_gijimemo_whisper_WhisperJni_fullTranscribeChunked(
     (*env)->ReleaseFloatArrayElements(env, audio_data, audio_arr, JNI_ABORT);
     if (language != NULL) {
         (*env)->ReleaseStringUTFChars(env, language_str, language);
+    }
+    if (vad_model_path != NULL) {
+        (*env)->ReleaseStringUTFChars(env, vad_model_path_str, vad_model_path);
     }
 }
 

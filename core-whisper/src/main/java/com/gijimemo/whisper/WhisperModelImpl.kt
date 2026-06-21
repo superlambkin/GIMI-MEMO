@@ -46,9 +46,14 @@ class WhisperModelImpl : WhisperModel {
      * @param language "ja" / "zh" / "en" など。null なら whisper 自動検出。
      */
     override fun transcribe(audioData: FloatArray, language: String?): String {
+        return transcribe(audioData, language, null)
+    }
+
+    /** v0.7.4: 言語ヒント + VAD モデルパス指定版 */
+    fun transcribe(audioData: FloatArray, language: String?, vadModelPath: String?): String {
         checkLoaded()
-        Log.d(TAG, "Transcribing ${audioData.size} samples with $numThreads threads, lang=${language ?: "auto"}")
-        WhisperJniBridge.fullTranscribe(nativePtr, numThreads, language, audioData)
+        Log.d(TAG, "Transcribing ${audioData.size} samples with $numThreads threads, lang=${language ?: "auto"}, vad=${if (vadModelPath != null) "ON" else "OFF"}")
+        WhisperJniBridge.fullTranscribe(nativePtr, numThreads, language, audioData, vadModelPath)
 
         val count = WhisperJniBridge.getTextSegmentCount(nativePtr)
         val sb = StringBuilder()
@@ -81,6 +86,9 @@ class WhisperModelImpl : WhisperModel {
      * v0.7.2: 30秒窓 + 2秒オーバーラップで文字起こし。
      * stride = windowMs - overlapMs = 28000ms でループ。
      * 各窓のテキストを空白区切りで連結。重複排除は将来拡張 (v0.7.3)。
+     *
+     * 速度最適化: 音声が windowMs 以下の場合は単一窓で転写し、
+     * 30秒音声に対して2窓処理 (実時間比2倍) にならないようにする。
      */
     override fun transcribeWithOverlap(
         audioData: FloatArray,
@@ -88,11 +96,32 @@ class WhisperModelImpl : WhisperModel {
         windowMs: Int,
         overlapMs: Int
     ): String {
+        return transcribeWithOverlap(audioData, language, windowMs, overlapMs, null)
+    }
+
+    /** v0.7.4: オーバーラップ分割 + VAD 対応版 */
+    fun transcribeWithOverlap(
+        audioData: FloatArray,
+        language: String?,
+        windowMs: Int,
+        overlapMs: Int,
+        vadModelPath: String?
+    ): String {
         checkLoaded()
         val sampleRate = 16000
         val windowSamples = windowMs * sampleRate / 1000
-        val strideSamples = (windowMs - overlapMs) * sampleRate / 1000
         val totalSamples = audioData.size
+        val totalMs = totalSamples * 1000 / sampleRate
+
+        // v0.7.2: 60秒以下は分割せず一括転写 → 体感速度 2x (AAC 30秒音声で
+        // chunked 経路に入ってしまい、窓1 (480000 samples) + 窓2 (43999 samples)
+        // で約6分かかる問題を回避)
+        if (totalMs <= 60_000) {
+            Log.d(TAG, "transcribeWithOverlap: short audio (${totalMs}ms <= 60000), using single-shot transcribe()")
+            return transcribe(audioData, language, vadModelPath)
+        }
+
+        val strideSamples = (windowMs - overlapMs) * sampleRate / 1000
         Log.d(TAG, "transcribeWithOverlap: total=${totalSamples} window=${windowMs}ms overlap=${overlapMs}ms stride=${strideSamples} samples")
 
         val sb = StringBuilder()
@@ -110,7 +139,7 @@ class WhisperModelImpl : WhisperModel {
             Log.d(TAG, "  window: offset=${offsetMs}ms duration=${durationMs}ms samples=$chunkSize")
 
             WhisperJniBridge.fullTranscribeChunked(
-                nativePtr, numThreads, language, chunk, offsetMs, durationMs
+                nativePtr, numThreads, language, chunk, offsetMs, durationMs, vadModelPath
             )
 
             val count = WhisperJniBridge.getTextSegmentCount(nativePtr)
@@ -136,9 +165,9 @@ class WhisperModelImpl : WhisperModel {
     }
 
     /** v0.7.2: ファイル読み込み → transcribeWithOverlap のヘルパー。 */
-    fun transcribeFileWithOverlap(wavFile: File, language: String?): String {
+    fun transcribeFileWithOverlap(wavFile: File, language: String?, vadModelPath: String? = null): String {
         val pcmFloat = readWavAsFloat(wavFile)
-        return transcribeWithOverlap(pcmFloat, language)
+        return transcribeWithOverlap(pcmFloat, language, WINDOW_MS, OVERLAP_MS, vadModelPath)
     }
 
     override fun release() {

@@ -1,5 +1,6 @@
 package com.gijimemo.ui.preview
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,9 +24,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,9 +66,13 @@ fun PreviewScreen(
         }
     }
 
+    // v0.7.4: 画面離脱時に TTS 再生を停止
+    DisposableEffect(Unit) { onDispose { viewModel.stopSpeaking() } }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp)
             .padding(top = 32.dp) // 上部余白確保
             .verticalScroll(rememberScrollState())
@@ -80,26 +87,12 @@ fun PreviewScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // ─── 言語chip + 操作ボタン（統一サイズ） ────────
+        // ─── 操作ボタン ────────────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            if (state.detectedLanguage != null) {
-                AssistChip(
-                    onClick = {},
-                    leadingIcon = {
-                        Icon(Icons.Filled.Language, contentDescription = null,
-                            modifier = Modifier.width(18.dp).height(18.dp))
-                    },
-                    label = { Text("検出: ${state.detectedLanguage}") },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            }
             Spacer(Modifier.weight(1f))
             // 統一サイズの操作ボタン行
             OutlinedButton(
@@ -138,6 +131,37 @@ fun PreviewScreen(
                 modifier = Modifier.height(40.dp)
             ) {
                 Text(if (isSpeaking) "■停止" else "▶再生", fontSize = 12.sp)
+            }
+        }
+
+        // v0.7.4: TTS 再生シークバー
+        if (viewModel.ttsDurationSec > 0) {
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "%02d:%02d".format(viewModel.ttsPositionSec / 60, viewModel.ttsPositionSec % 60),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(48.dp)
+                )
+                Slider(
+                    value = viewModel.ttsProgress,
+                    onValueChange = { viewModel.seekTts(it) },
+                    modifier = Modifier.weight(1f).height(24.dp),
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+                Text(
+                    text = "%02d:%02d".format(viewModel.ttsDurationSec / 60, viewModel.ttsDurationSec % 60),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(48.dp)
+                )
             }
         }
 

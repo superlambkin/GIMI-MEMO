@@ -2,6 +2,7 @@ package com.gijimemo.llm.di
 
 import android.content.Context
 import android.util.Log
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.OnDeviceWhisperClient
 import com.gijimemo.llm.OpenAiCompatibleClient
 import com.gijimemo.whisper.ModelManager
@@ -61,14 +62,11 @@ object LlmModule {
         @ApplicationContext context: Context,
         whisperModel: WhisperModel,
         modelManager: ModelManager,
-        openAiClient: OpenAiCompatibleClient
+        openAiClient: OpenAiCompatibleClient,
+        settings: SettingsRepository
     ): OnDeviceWhisperClient {
-        // v0.7.2: useGpu=false をデフォルトで Singleton 化。
-        // Whisper+要約経路でのみ OpenCL を有効にしたい場合は、
-        // ProcessingViewModel 内で useGpu=true のクライアントを別途生成して上書きする。
-        // → 簡略化のため、Phase 4 では build flag で OpenCL を有効化する設計とし、
-        // ランタイム useGpu フラグは将来拡張として残す。
-        return OnDeviceWhisperClient(context, whisperModel, modelManager, openAiClient, useGpu = false)
+        // v0.7.4: 設定から選択したモデルを使用可能に。
+        return OnDeviceWhisperClient(context, whisperModel, modelManager, openAiClient, settings, useGpu = false)
     }
 
     private const val TAG = "GijiMemoLLM"

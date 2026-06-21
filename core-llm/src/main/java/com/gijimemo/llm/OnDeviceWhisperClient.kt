@@ -3,11 +3,13 @@ package com.gijimemo.llm
 import android.content.Context
 import android.util.Log
 import com.gijimemo.data.model.LlmCallMode
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.whisper.AudioDecoder
 import com.gijimemo.whisper.ModelManager
 import com.gijimemo.whisper.WhisperModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,6 +31,7 @@ class OnDeviceWhisperClient(
     private val modelManager: ModelManager,
     private val openAiClient: OpenAiCompatibleClient,
     /** v0.7.2: Whisper+要約経路のみ true。OpenCL/GPU 経由の高速化。 */
+    private val settings: SettingsRepository? = null,
     private val useGpu: Boolean = false
 ) : LlmClient {
 
@@ -55,7 +58,9 @@ class OnDeviceWhisperClient(
 
         // 1. Ensure bundled model is extracted to filesDir (no-op after first launch).
         //    For non-bundled models, fall back to network download.
-        val modelName = "ggml-base-q5_1.bin"
+        val modelName = settings?.let {
+            try { kotlinx.coroutines.runBlocking { it.whisperModel.first() } } catch (_: Exception) { null }
+        } ?: "ggml-tiny-q5_1.bin"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info != null && info.isBundled) {
             modelManager.ensureBundledModel(modelName)
@@ -75,6 +80,9 @@ class OnDeviceWhisperClient(
             Log.d(TAG, "Whisper model already preloaded — skip load")
         }
 
+        // v0.7.4: Silero VAD モデルを assets から展開
+        val vadModelFile = extractVadModel()
+
         try {
             // 3. Decode AAC → WAV
             val wavFile = withContext(Dispatchers.IO) {
@@ -84,11 +92,14 @@ class OnDeviceWhisperClient(
             }
 
             // 4. Transcribe (v0.7.2: 30秒窓 + 2秒オーバーラップで高精度・高速化)
-            //    WhisperModelImpl なら transcribeFileWithOverlap()、それ以外は通常経路。
+            //    v0.7.4: VAD モデルパスを渡して無音区間スキップ
+            val wavFileForTranscribe = File(wavFile)
             val result = if (whisperModel is com.gijimemo.whisper.WhisperModelImpl) {
-                whisperModel.transcribeFileWithOverlap(File(wavFile), languageHint)
+                (whisperModel as com.gijimemo.whisper.WhisperModelImpl).transcribeFileWithOverlap(
+                    wavFileForTranscribe, languageHint, vadModelFile?.absolutePath
+                )
             } else {
-                whisperModel.transcribeFile(File(wavFile), languageHint)
+                whisperModel.transcribeFile(wavFileForTranscribe, languageHint)
             }
 
             // 5. Cleanup temp WAV
@@ -120,12 +131,11 @@ class OnDeviceWhisperClient(
     }
 
     override suspend fun testConnection(): String {
-        val modelName = "ggml-base-q5_1.bin"
+        val modelName = settings?.whisperModel?.first() ?: "ggml-tiny-q5_1.bin"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info == null || !modelManager.isModelDownloaded(modelName)) {
             return "オンデバイスWhisper: モデル未ダウンロード"
         }
-        // Ensure extraction happened (cheap if already present).
         if (info.isBundled) {
             modelManager.ensureBundledModel(modelName)
         }
@@ -162,7 +172,7 @@ class OnDeviceWhisperClient(
             return@withContext
         }
         try {
-            val modelName = "ggml-base-q5_1.bin"
+            val modelName = settings?.whisperModel?.first() ?: "ggml-tiny-q5_1.bin"
             val info = modelManager.availableModels.find { it.name == modelName }
             if (info != null && info.isBundled) {
                 modelManager.ensureBundledModel(modelName)
@@ -177,6 +187,26 @@ class OnDeviceWhisperClient(
             Log.d(TAG, "preloadModel: loaded in ${System.currentTimeMillis() - t0}ms")
         } catch (e: Exception) {
             Log.w(TAG, "preloadModel failed (will retry at transcribe time): ${e.message}", e)
+        }
+    }
+
+    /** Silero VAD モデルを assets から filesDir に展開する。 */
+    private fun extractVadModel(): File? {
+        return try {
+            val target = File(context.filesDir, "whisper_models/ggml-silero-vad.bin")
+            if (target.exists()) {
+                Log.d(TAG, "VAD model already extracted: ${target.absolutePath}")
+                return target
+            }
+            target.parentFile?.mkdirs()
+            context.assets.open("ggml-silero-vad.bin").use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            Log.d(TAG, "VAD model extracted: ${target.absolutePath} (${target.length()} bytes)")
+            target
+        } catch (e: Exception) {
+            Log.w(TAG, "VAD model extract failed: ${e.message}")
+            null
         }
     }
 

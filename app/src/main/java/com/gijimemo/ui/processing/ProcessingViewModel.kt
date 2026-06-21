@@ -30,6 +30,8 @@ import com.gijimemo.whisper.AudioDecoder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,7 +74,20 @@ data class ProcessingState(
     /** 1チャンクあたりの予想API時間(ms) */
     val chunkTimeEstimateMs: Long = 0L,
     /** 分割処理にかかった実際の時間(ms) */
-    val splitTimeMs: Long = 0L
+    val splitTimeMs: Long = 0L,
+    // ── v0.7.2: パフォーマンス計測 ──
+    /** モデルロードにかかった時間(ms) */
+    val modelLoadMs: Long = 0L,
+    /** 音声デコード (AAC→WAV) 時間(ms) */
+    val decodeMs: Long = 0L,
+    /** 各転写窓の処理時間リスト (ms) */
+    val windowTimingsMs: List<Long> = emptyList(),
+    /** whisper.cpp が使用するスレッド数 */
+    val threadCount: Int = 0,
+    /** GPU フラグ (実機では CMake 未統合のため false) */
+    val useGpu: Boolean = false,
+    /** LLM 要約 API 呼び出し時間(ms) */
+    val summaryApiMs: Long = 0L
 ) {
     val isTranscribing: Boolean get() = phase == ProcessingPhase.TRANSCRIBING
     val isSummarizing: Boolean get() = phase == ProcessingPhase.SUMMARIZING
@@ -109,6 +124,8 @@ class ProcessingViewModel @Inject constructor(
     private var cachedModel: String = ""
     private var cachedPrompt: String = ""
     private var cachedUseOnDevice: Boolean = false
+    /** v0.7.2: GPU 使用フラグ (OpenCL 有効化フラグを State に伝播) */
+    private var cachedUseGpu: Boolean = false
     /** 実行時の呼び出しモード。finalizeSession() で Session に保存。 */
     private var cachedCallMode: LlmCallMode = LlmCallMode.MULTIMODAL
     /** 文字起こしフェーズの開始時刻 (transcribe 専用時間計測用)。 */
@@ -158,7 +175,8 @@ class ProcessingViewModel @Inject constructor(
      * ファイルサイズに応じて分割文字起こしまたは一括処理を行う。
      */
     fun start() {
-        if (_state.value.phase != ProcessingPhase.IDLE) return
+        if (_state.value.phase != ProcessingPhase.IDLE && _state.value.phase != ProcessingPhase.ERROR) return
+        _state.value = ProcessingState() // ERROR からも再開可能に
         processingStartMs = System.currentTimeMillis()
 
         // 画面オフ対策: ForegroundService + WakeLock を開始
@@ -247,9 +265,11 @@ class ProcessingViewModel @Inject constructor(
         cachedModel = model
 
         // v0.7.2: Whisper+要約経路 + オンデバイスWhisper 有効時のみ OpenCL/GPU を有効化。
-        // それ以外 (MULTIMODAL やクラウド文字起こし) では CPU のみで動作。
+        // v0.7.2: CMakeLists.txt に GGML_USE_OPENCL=1 を組み込んだので true に。
+        // CPU のみの端末では whisper.cpp 内部で OpenCL 初期化失敗 → CPU フォールバック。
         val callMode = settings.defaultCallMode.first()
         val useGpu = useOnDeviceAsr && callMode == LlmCallMode.WHISPER_THEN_SUMMARY
+        cachedUseGpu = useGpu
         Log.d(tag, "initializeLlmClient: useOnDeviceAsr=$useOnDeviceAsr callMode=$callMode → useGpu=$useGpu")
 
         return provider.createClient(
@@ -276,7 +296,7 @@ class ProcessingViewModel @Inject constructor(
     private suspend fun startTranscribePhase(audioFile: File) {
         val client = cachedClient ?: error("Client not initialized")
 
-        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice)
+        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu, threadCount = Runtime.getRuntime().availableProcessors() - 1)
 
         try {
             transcribeStartMs = System.currentTimeMillis()
@@ -692,7 +712,7 @@ A: （回答）
     ) {
         val client = cachedClient ?: error("Client not initialized")
 
-        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice)
+        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu, threadCount = Runtime.getRuntime().availableProcessors() - 1)
 
         val sb = StringBuilder()
         client.transcribeAndFormat(audioFile, prompt, mode).collect { event ->
@@ -731,11 +751,16 @@ A: （回答）
 
     /**
      * 文字起こしをリトライする。
+     * v0.7.4: クラウドWhisper（OpenAI）とオンデバイスWhisperを正しく振り分け。
      */
     fun retryTranscribe() {
         cachedAudioFile?.let { file ->
             viewModelScope.launch {
-                startTranscribePhase(file)
+                if (cachedUseOnDevice) {
+                    startTranscribePhase(file)
+                } else {
+                    chunkAndTranscribe(file)
+                }
             }
         }
     }
@@ -820,6 +845,22 @@ A: （回答）
     companion object {
         /** WAV サンプルレート */
         private const val SAMPLE_RATE = 16000
+
+        /**
+         * 先頭 2 バイトが ADTS 同期ワード (0xFFFx) かを確認して raw AAC を検出。
+         * OpenAI Whisper API は raw AAC をサポートしていないため、事前に WAV
+         * 変換が必要。
+         */
+        private fun isRawAacFile(file: File): Boolean {
+            return try {
+                val bytes = file.readBytes()
+                bytes.size >= 2 &&
+                    (bytes[0].toInt() and 0xFF) == 0xFF &&
+                    (bytes[1].toInt() and 0xF0) == 0xF0
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 
     // ─── M4A 直接分割（MediaExtractor + MediaMuxer） ──────
@@ -938,6 +979,44 @@ A: （回答）
         }
     }
 
+    /**
+     * raw AAC (ADTS) を M4A コンテナにラップする。
+     * MediaExtractor + MediaMuxer でデコードせずにコンテナ変換するため、
+     * 従来の AAC→WAV デコード（実時間比 4.7倍）に比べてほぼ瞬時に完了する。
+     * @return ラップ後の M4A ファイル、失敗時は null
+     */
+    private fun wrapAacInM4a(source: File, outputDir: File): File? {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(source.absolutePath)
+        } catch (e: Exception) {
+            Log.w(tag, "wrapAacInM4a: cannot read $source: ${e.message}")
+            return null
+        }
+        val trackIndex = findAudioTrackM4a(extractor)
+        if (trackIndex < 0) { extractor.release(); return null }
+        val format = extractor.getTrackFormat(trackIndex)
+        extractor.selectTrack(trackIndex)
+
+        val frames = mutableListOf<AudioFrame>()
+        while (true) {
+            val buf = ByteBuffer.allocate(8192)
+            val sampleSize = extractor.readSampleData(buf, 0)
+            if (sampleSize < 0) break
+            val data = ByteArray(sampleSize)
+            buf.rewind(); buf.get(data)
+            frames.add(AudioFrame(data, extractor.sampleTime, extractor.sampleFlags))
+            if (!extractor.advance()) break
+        }
+        extractor.release()
+        if (frames.isEmpty()) return null
+
+        val outFile = File(outputDir, "m4a_wrapped_${System.nanoTime()}.m4a")
+        writeM4aChunk(outFile, format, frames, 0, frames.size)
+        Log.d(tag, "wrapAacInM4a: ${source.length()}B → ${outFile.absolutePath} (${frames.size} frames)")
+        return outFile
+    }
+
     // ─── 分割文字起こし（M4A 直接分割版） ──────────────────
 
     /**
@@ -954,7 +1033,6 @@ A: （回答）
         }
 
         val chunkSizeBytes = (chunkSizeMb * 1024 * 1024L).coerceAtLeast(1024 * 1024)
-        val decodeEnabled = settings.decodeEnabled.first()
         _state.value = ProcessingState(
             phase = ProcessingPhase.TRANSCRIBING,
             useOnDevice = false,
@@ -993,9 +1071,22 @@ A: （回答）
             // 単一ファイルで収まる → 直接送信
             if (source.length() <= chunkSizeBytes) {
                 Log.d(tag, "Single chunk, sending original file to Whisper API")
+
+                // raw AAC (ADTS) → M4A コンテナにラップ（デコード不要、ほぼ瞬時）
+                val fileToSend = if (isRawAacFile(source)) {
+                    Log.d(tag, "Raw AAC detected, wrapping in M4A container")
+                    _state.value = _state.value.copy(detailStatus = "AAC→M4A 変換中...")
+                    val m4aFile = withContext(Dispatchers.IO) {
+                        wrapAacInM4a(source, cacheDir)
+                    }
+                    m4aFile ?: source
+                } else {
+                    source
+                }
+
                 _state.value = _state.value.copy(detailStatus = "Whisper API 送信中...")
                 val tApi = System.currentTimeMillis()
-                val transcript = whisperClient.transcribeOnly(source)
+                val transcript = whisperClient.transcribeOnly(fileToSend)
                 Log.d(tag, "[TIMING] Whisper API: ${System.currentTimeMillis() - tApi}ms")
                 _state.value = ProcessingState(
                     phase = ProcessingPhase.TRANSCRIBED,
@@ -1054,29 +1145,32 @@ A: （回答）
                 )
             }
 
-            // 3. 全チャンクを順次 Whisper API で文字起こし
+            // 3. 全チャンクを並列 Whisper API で文字起こし（最大 3 並行）
             val fullTranscript = StringBuilder()
             val totalChunks = chunks.size
-
-            for (i in chunks.indices) {
-                val chunkFile = chunks[i]
-                _state.value = _state.value.copy(
-                    detailStatus = "チャンク ${i + 1}/$totalChunks 送信中...",
-                    completedChunks = i
-                )
-
-                try {
-                    val tApi = System.currentTimeMillis()
-                    val transcript = whisperClient.transcribeOnly(chunkFile)
-                    Log.d(tag, "[TIMING] Chunk ${i + 1} API: ${System.currentTimeMillis() - tApi}ms")
+            val semaphore = java.util.concurrent.Semaphore(3)
+            val results = coroutineScope {
+                chunks.mapIndexed { i, chunkFile ->
+                    async {
+                        semaphore.acquire()
+                        try {
+                            val transcript = whisperClient.transcribeOnly(chunkFile)
+                            i to transcript.trim()
+                        } catch (e: Exception) {
+                            Log.e(tag, "Chunk ${i + 1}/$totalChunks failed: ${e.message}")
+                            i to ""
+                        } finally {
+                            chunkFile.delete()
+                            semaphore.release()
+                            _state.value = _state.value.copy(completedChunks = _state.value.completedChunks + 1)
+                        }
+                    }
+                }.map { it.await() }.sortedBy { (i, _) -> i }
+            }
+            for ((_, text) in results) {
+                if (text.isNotEmpty()) {
                     if (fullTranscript.isNotEmpty()) fullTranscript.append(" ")
-                    fullTranscript.append(transcript.trim())
-                    Log.d(tag, "Chunk ${i + 1}/$totalChunks: ${transcript.length} chars")
-                    _state.value = _state.value.copy(completedChunks = i + 1)
-                } catch (e: Exception) {
-                    Log.e(tag, "Chunk ${i + 1}/$totalChunks failed: ${e.message}")
-                } finally {
-                    chunkFile.delete()
+                    fullTranscript.append(text)
                 }
             }
 

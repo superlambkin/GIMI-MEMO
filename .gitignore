@@ -28,3 +28,21 @@ debug_tts/
 debug_v060/
 gijimemo.db
 gijimemo_check.db
+
+# Debug screenshots
+after_12min_transcribe/
+after_transcribe/
+debug_*/
+debug_monitor/
+debug_screen/
+debug_session/
+debug_tts/
+debug_v060/
+debug_white_screen/
+gpu_status/
+import_meta_check/
+import_meta_check2/
+import_meta_check3/
+import_meta_v3/
+transcribe_failure/
+test_screenshots/

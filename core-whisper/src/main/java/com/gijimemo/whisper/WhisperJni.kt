@@ -14,26 +14,28 @@ class WhisperJni {
             System.loadLibrary("whisper")
         }
 
-        /** Load a GGML model from file. Returns native context pointer.
-         *  v0.7.2: use_gpu フラグ追加 (Whisper+要約経路のみ true)。
-         */
+        /** Load a GGML model from file. Returns native context pointer. */
         @JvmStatic external fun initContext(modelPath: String, useGpu: Boolean): Long
 
         /** Release native model resources. */
         @JvmStatic external fun freeContext(contextPtr: Long)
 
-        /** Run full transcription on PCM float data (16kHz mono, normalized).
-         *  @param language "ja" / "zh" / "en" など。null なら自動検出。
+        /**
+         * Run full transcription on PCM float data (16kHz mono, normalized).
+         * @param language "ja" / "zh" / "en" など。null なら自動検出。
+         * @param vadModelPath Silero VAD モデルパス。null で VAD 無効。
          */
         @JvmStatic external fun fullTranscribe(
             contextPtr: Long,
             numThreads: Int,
             language: String?,
-            audioData: FloatArray
+            audioData: FloatArray,
+            vadModelPath: String? = null
         )
 
-        /** v0.7.2: 指定時間窓 (offset_ms / duration_ms) の文字起こし。
-         *  30秒単位分割 + 2秒オーバーラップ処理用。
+        /**
+         * v0.7.2: 指定時間窓 (offset_ms / duration_ms) の文字起こし。
+         * @param vadModelPath Silero VAD モデルパス。null で VAD 無効。
          */
         @JvmStatic external fun fullTranscribeChunked(
             contextPtr: Long,
@@ -41,7 +43,8 @@ class WhisperJni {
             language: String?,
             audioData: FloatArray,
             offsetMs: Int,
-            durationMs: Int
+            durationMs: Int,
+            vadModelPath: String? = null
         )
 
         /** Number of text segments from last transcription. */
@@ -52,26 +55,14 @@ class WhisperJni {
     }
 }
 
-// ─── Static facade ────────────────────────────────────────────
-//
-// Allow callers to use `WhisperJni.initContext(...)` exactly as before.
-// The actual native functions live in `WhisperJni.Companion`; this object
-// is a thin pass-through that preserves the calling convention while
-// making the JNI symbol names stable (`initContext`, not
-// `initContext$core_whisper_release`).
+// ─── Static facade ──────────────────────────────────────────────────────
 object WhisperJniBridge {
     fun initContext(modelPath: String, useGpu: Boolean = false): Long = WhisperJni.initContext(modelPath, useGpu)
     fun freeContext(contextPtr: Long): Unit = WhisperJni.freeContext(contextPtr)
-    fun fullTranscribe(contextPtr: Long, numThreads: Int, language: String?, audioData: FloatArray): Unit =
-        WhisperJni.fullTranscribe(contextPtr, numThreads, language, audioData)
-    fun fullTranscribeChunked(
-        contextPtr: Long,
-        numThreads: Int,
-        language: String?,
-        audioData: FloatArray,
-        offsetMs: Int,
-        durationMs: Int
-    ): Unit = WhisperJni.fullTranscribeChunked(contextPtr, numThreads, language, audioData, offsetMs, durationMs)
+    fun fullTranscribe(contextPtr: Long, numThreads: Int, language: String?, audioData: FloatArray, vadModelPath: String? = null): Unit =
+        WhisperJni.fullTranscribe(contextPtr, numThreads, language, audioData, vadModelPath)
+    fun fullTranscribeChunked(contextPtr: Long, numThreads: Int, language: String?, audioData: FloatArray, offsetMs: Int, durationMs: Int, vadModelPath: String? = null): Unit =
+        WhisperJni.fullTranscribeChunked(contextPtr, numThreads, language, audioData, offsetMs, durationMs, vadModelPath)
     fun getTextSegmentCount(contextPtr: Long): Int = WhisperJni.getTextSegmentCount(contextPtr)
     fun getTextSegment(contextPtr: Long, index: Int): String = WhisperJni.getTextSegment(contextPtr, index)
 }

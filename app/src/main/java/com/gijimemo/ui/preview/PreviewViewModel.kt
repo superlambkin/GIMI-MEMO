@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
@@ -58,6 +59,12 @@ class PreviewViewModel @Inject constructor(
     var isSpeaking by mutableStateOf(false); private set
     private var pendingSpeak: String? = null
     private var ttsEngineSetting: String? = null
+    private var ttsSpeakText: String = ""
+    private var ttsStartMs: Long = 0L
+    var ttsProgress by mutableStateOf(0f); private set  // 0.0〜1.0
+    var ttsPositionSec by mutableIntStateOf(0); private set
+    var ttsDurationSec by mutableIntStateOf(0); private set
+    private var ttsJob: kotlinx.coroutines.Job? = null
 
     private val googleTtsPackage = "com.google.android.tts"
     private fun isPackageInstalled(pkg: String): Boolean = try {
@@ -76,24 +83,40 @@ class PreviewViewModel @Inject constructor(
         if (tts != null && ttsReady) return
         tts?.shutdown()
 
-        var engine = when {
-            ttsEngineSetting != null -> ttsEngineSetting
-            isPackageInstalled(googleTtsPackage) -> googleTtsPackage
-            else -> null
+        // Mate 60 Pro (Huawei) では PackageManager で Google TTS を検出しても
+        // TextToSpeech(context, listener, packageName) が失敗する。
+        // フルサービスクラス名を試行し、それでもダメならデフォルトエンジン。
+        val engineCandidates = listOfNotNull(
+            ttsEngineSetting,
+            googleTtsPackage,
+            "com.google.android.apps.speech.tts.googletts.service.GoogleTtsService"
+        ).distinct()
+
+        var currentError: Exception? = null
+        for (candidate in engineCandidates) {
+            try {
+                @Suppress("DEPRECATION")
+                tts = TextToSpeech(context, { status -> onTtsInit(status) }, candidate)
+                Log.i("PreviewVM", "initTts: succeeded with engine=$candidate")
+                currentError = null
+                break
+            } catch (e: Exception) {
+                Log.w("PreviewVM", "initTts: engine='$candidate' failed: ${e.message}")
+                currentError = e
+            }
         }
-        // Huawei Mate 60 Pro では PackageManager が Google TTS を検出できない。
-        // 実際にはインストール済みなのでパッケージ名を直接試す。
-        if (engine == null) {
-            Log.i("PreviewVM", "PackageManager failed to detect Google TTS, trying direct package")
-            engine = googleTtsPackage
+
+        // 全エンジン候補が失敗 → デフォルトエンジン
+        if (currentError != null) {
+            Log.w("PreviewVM", "initTts: all engine candidates failed, using default")
+            @Suppress("DEPRECATION")
+            tts = TextToSpeech(context) { status -> onTtsInit(status) }
         }
-        @Suppress("DEPRECATION")
-        tts = try {
-            TextToSpeech(context, { status -> onTtsInit(status) }, engine)
-        } catch (e: Exception) {
-            Log.w("PreviewVM", "TTS engine $engine failed: ${e.message}, using default")
-            TextToSpeech(context) { status -> onTtsInit(status) }
-        }
+    }
+
+    private fun isHuaweiBuild(): Boolean {
+        return Build.MANUFACTURER.equals("HUAWEI", ignoreCase = true)
+                || Build.BRAND.equals("HUAWEI", ignoreCase = true)
     }
 
     private fun onTtsInit(status: Int) {
@@ -106,35 +129,75 @@ class PreviewViewModel @Inject constructor(
     }
 
     private fun setupTts() {
-        val langAvail = tts?.isLanguageAvailable(java.util.Locale.JAPANESE) ?: return
-        if (langAvail >= TextToSpeech.LANG_AVAILABLE) {
-            tts?.setLanguage(java.util.Locale.JAPANESE)
-        } else {
-            // isLanguageAvailable が false でも setLanguage を試す（Google TTS 等で実際は使える場合がある）
-            val langResult = tts?.setLanguage(java.util.Locale.JAPANESE)
-            if (langResult != null && langResult >= TextToSpeech.LANG_AVAILABLE) {
-                Log.i("PreviewVM", "Japanese available via setLanguage ($langResult)")
-            } else {
-                Log.w("PreviewVM", "TTS Japanese not available ($langAvail), using default locale")
-                tts?.setLanguage(java.util.Locale.getDefault())
-            }
-        }
+        // 日本語設定: isLanguageAvailable の結果によらず常に setLanguage を試す
+        tts?.setLanguage(java.util.Locale.JAPANESE)
+        Log.i("PreviewVM", "setupTts: setLanguage(Japanese) done")
         tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onDone(uid: String?) { if (uid == "tts") isSpeaking = false }
             override fun onError(uid: String?) { if (uid == "tts") isSpeaking = false }
             override fun onStart(uid: String?) {}
         })
-        pendingSpeak?.let { s -> tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, "tts"); isSpeaking = true; pendingSpeak = null }
+        pendingSpeak?.let { text ->
+            speakImmediate(text)
+            pendingSpeak = null
+        }
+    }
+
+    private fun speakImmediate(text: String) {
+        ttsSpeakText = text
+        ttsStartMs = System.currentTimeMillis()
+        // TTS 話速は日本語で約 6文字/秒。実際の話速は割愛（標準APIなし）.
+        ttsDurationSec = (text.length / 6).coerceIn(1, 3600)
+        ttsProgress = 0f
+        ttsPositionSec = 0
+
+        val params = java.util.HashMap<String, String>()
+        params[android.speech.tts.TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID] = "tts"
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params)
+        isSpeaking = true
+
+        ttsJob?.cancel()
+        ttsJob = kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.Main) {
+            while (isSpeaking) {
+                val elapsed = System.currentTimeMillis() - ttsStartMs
+                ttsPositionSec = (elapsed / 1000).toInt()
+                ttsProgress = (elapsed.toFloat() / (ttsDurationSec * 1000f)).coerceIn(0f, 1f)
+                kotlinx.coroutines.delay(250)
+            }
+            ttsProgress = 1f
+            ttsPositionSec = ttsDurationSec
+        }
     }
 
     fun speak(text: String) {
         if (isSpeaking) { stopSpeaking(); return }
         if (!ttsReady) { pendingSpeak = text; initTts(); return }
-        try { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts"); isSpeaking = true }
-        catch (e: Exception) { Log.e("PreviewVM", "TTS fail", e) }
+        speakImmediate(text)
     }
 
-    fun stopSpeaking() { tts?.stop(); isSpeaking = false; pendingSpeak = null }
+    fun stopSpeaking() {
+        tts?.stop()
+        isSpeaking = false
+        pendingSpeak = null
+        ttsJob?.cancel()
+        ttsProgress = 0f
+        ttsPositionSec = 0
+    }
+
+    /** TTS 再生位置をシーク（文字位置ベースで再発話） */
+    fun seekTts(progress: Float) {
+        if (!isSpeaking || ttsSpeakText.isEmpty()) return
+        tts?.stop()
+        val charPos = (ttsSpeakText.length * progress.coerceIn(0f, 1f)).toInt()
+        val remainingText = ttsSpeakText.substring(charPos.coerceAtMost(ttsSpeakText.length - 1))
+        if (remainingText.isNotEmpty()) {
+            // 再開時に累積時間を調整
+            ttsStartMs = System.currentTimeMillis() - (ttsDurationSec * 1000f * progress).toLong()
+            val params = java.util.HashMap<String, String>()
+            params[android.speech.tts.TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID] = "tts"
+            tts?.speak(remainingText, TextToSpeech.QUEUE_FLUSH, params)
+        }
+    }
     override fun onCleared() { super.onCleared(); tts?.stop(); tts?.shutdown(); tts = null }
 
     private val _state = MutableStateFlow(PreviewState())

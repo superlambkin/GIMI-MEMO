@@ -38,9 +38,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,6 +91,9 @@ fun RecordingScreen(
 
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // v0.7.3: 画面離脱時に再生中の音声を停止
+    DisposableEffect(Unit) { onDispose { viewModel.stopPlayback() } }
 
     // 画面サイズに応じた波形サイズ（横幅の約55%）
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
@@ -485,6 +490,22 @@ private fun StoppedPlaybackAndTranscribe(
                 }
             }
         }
+    }
+    // シークバー
+    val playPos by viewModel.playbackPosition.collectAsState()
+    val playDur by viewModel.playbackDuration.collectAsState()
+    if (playDur > 0L && (pbState == PlaybackState.Playing || pbState == PlaybackState.Paused)) {
+        Slider(
+            value = if (playDur > 0L) playPos.toFloat() / playDur else 0f,
+            onValueChange = { viewModel.seekAudio((it * playDur).toInt()) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp)
+        )
+        val posS = playPos / 1000; val durS = playDur / 1000
+        Text(
+            "%02d:%02d / %02d:%02d".format(posS / 60, posS % 60, durS / 60, durS % 60),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
     Spacer(Modifier.height(4.dp))
     // ─── 言語別 文字起こしボタン (2 列) ────────────────────

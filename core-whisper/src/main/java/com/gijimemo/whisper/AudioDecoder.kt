@@ -64,7 +64,7 @@ object AudioDecoder {
 
         while (!outputDone) {
             if (!inputDone) {
-                val inputIndex = decoder.dequeueInputBuffer(10_000L)
+                val inputIndex = decoder.dequeueInputBuffer(1_000L)
                 if (inputIndex >= 0) {
                     val inputBuffer = decoder.getInputBuffer(inputIndex)
                     if (inputBuffer == null) {
@@ -82,7 +82,7 @@ object AudioDecoder {
                 }
             }
 
-            val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 10_000L)
+            val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 1_000L)
             if (outputIndex >= 0) {
                 if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                     outputDone = true

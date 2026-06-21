@@ -44,7 +44,7 @@ fun StartupSplash(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "GijiMemo",
+                text = "GIMI MEMO",
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 36.sp,
                 style = MaterialTheme.typography.headlineLarge

@@ -73,9 +73,11 @@ class SettingsRepository @Inject constructor(
     val useOnDeviceAsr get() = store.useOnDeviceAsr
     val whisperModel get() = store.whisperModel
     val decodeEnabled get() = store.decodeEnabled
+    val cloudAsrProvider get() = store.cloudAsrProvider
 
     suspend fun setUseOnDeviceAsr(v: Boolean) = store.setUseOnDeviceAsr(v)
     suspend fun setDecodeEnabled(v: Boolean) = store.setDecodeEnabled(v)
+    suspend fun setCloudAsrProvider(v: String) = store.setCloudAsrProvider(v)
     val transcribePerfFactor get() = store.transcribePerfFactor
     suspend fun setTranscribePerfFactor(v: Float) = store.setTranscribePerfFactor(v)
     val themeMode get() = store.themeMode
