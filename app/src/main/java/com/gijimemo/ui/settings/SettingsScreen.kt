@@ -352,12 +352,12 @@ fun SettingsScreen(
                 expanded = brExpanded,
                 onDismissRequest = { brExpanded = false }
             ) {
-                listOf(32000, 48000, 64000, 96000, 128000).forEach { v ->
+                listOf(32000, 64000, 96000, 128000, 192000).forEach { v ->
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "${v / 1000}kbps${if (v == 48000) " ★推奨" else ""}",
-                                color = if (v == 48000) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                "${v / 1000}kbps${if (v == 128000) " ★推奨" else ""}",
+                                color = if (v == 128000) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         },
                         onClick = { viewModel.setRecordingBitRate(v); brExpanded = false }

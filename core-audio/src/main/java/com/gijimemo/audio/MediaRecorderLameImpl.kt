@@ -79,22 +79,38 @@ class MediaRecorderLameImpl @Inject constructor(
 
     /**
      * 設定に基づき NoiseSuppressor / AGC を有効化。
-     * 端末が対応していない場合は何もしない。
+     * 端末が対応していない場合は警告ログを出してスキップ。
+     * v0.7.2: silent catch を撤廃し、診断ログを追加。
      */
     private fun enableAudioEffects(audioSessionId: Int) {
-        if (audioSessionId == 0) return
-        if (currentConfig.noiseSuppressor && NoiseSuppressor.isAvailable()) {
-            try {
-                NoiseSuppressor.create(audioSessionId)?.enabled = true
-                Log.i(TAG, "NoiseSuppressor enabled")
-            } catch (_: Exception) {}
+        if (audioSessionId == 0) {
+            Log.w(TAG, "enableAudioEffects: audioSessionId=0 (getAudioSessionId failed), skipping")
+            return
         }
-        if (currentConfig.automaticGainControl && AutomaticGainControl.isAvailable()) {
-            @Suppress("DEPRECATION")
-            try {
-                AutomaticGainControl.create(audioSessionId)?.enabled = true
-                Log.i(TAG, "AutomaticGainControl enabled")
-            } catch (_: Exception) {}
+        if (currentConfig.noiseSuppressor) {
+            if (NoiseSuppressor.isAvailable()) {
+                try {
+                    NoiseSuppressor.create(audioSessionId)?.enabled = true
+                    Log.i(TAG, "NoiseSuppressor enabled")
+                } catch (e: Exception) {
+                    Log.w(TAG, "NoiseSuppressor.create failed: ${e.message}")
+                }
+            } else {
+                Log.w(TAG, "NoiseSuppressor not available on this device; NS setting ignored")
+            }
+        }
+        if (currentConfig.automaticGainControl) {
+            if (AutomaticGainControl.isAvailable()) {
+                @Suppress("DEPRECATION")
+                try {
+                    AutomaticGainControl.create(audioSessionId)?.enabled = true
+                    Log.i(TAG, "AutomaticGainControl enabled")
+                } catch (e: Exception) {
+                    Log.w(TAG, "AutomaticGainControl.create failed: ${e.message}")
+                }
+            } else {
+                Log.w(TAG, "AutomaticGainControl not available; rely on VOICE_COMMUNICATION platform AGC")
+            }
         }
     }
 

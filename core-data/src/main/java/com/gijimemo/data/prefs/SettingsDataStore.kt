@@ -253,10 +253,13 @@ Q: （質問） A: （回答）
 
     // ─── 録音設定 ────────────────────────────────────────────
     val recordingSampleRate: Flow<Int> = context.dataStore.data.map { it[keyRecordingSampleRate] ?: 16000 }
-    val recordingBitRate: Flow<Int> = context.dataStore.data.map { it[keyRecordingBitRate] ?: 48000 }
+    // v0.7.2: 48kbps は AAC-LC 16kHz mono には低すぎ、録音音量が小さく聞こえる主因。
+    // 同梱 Recorder 系アプリは 128kbps が標準。128000 に変更。
+    val recordingBitRate: Flow<Int> = context.dataStore.data.map { it[keyRecordingBitRate] ?: 128000 }
     suspend fun setRecordingSampleRate(v: Int) = context.dataStore.edit { it[keyRecordingSampleRate] = v }
     suspend fun setRecordingBitRate(v: Int) = context.dataStore.edit { it[keyRecordingBitRate] = v }
 
+    // v0.7.2: AGC は ON 推奨 (小声でも録れる)、NS は明瞭音声より環境音が多い場合のみ ON
     val enableNoiseSuppressor: Flow<Boolean> = context.dataStore.data.map { it[keyEnableNs] ?: true }
     val enableAutomaticGainControl: Flow<Boolean> = context.dataStore.data.map { it[keyEnableAgc] ?: true }
     val enableVoiceActivityDetection: Flow<Boolean> = context.dataStore.data.map { it[keyEnableVad] ?: true }
