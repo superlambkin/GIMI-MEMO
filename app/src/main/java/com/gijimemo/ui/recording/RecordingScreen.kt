@@ -33,11 +33,14 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -91,6 +94,7 @@ fun RecordingScreen(
 
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsState()
 
     // v0.7.3: 画面離脱時に再生中の音声を停止
     DisposableEffect(Unit) { onDispose { viewModel.stopPlayback() } }
@@ -233,6 +237,12 @@ fun RecordingScreen(
                     isActive = state == RecordingState.Recording,
                     isPaused = state == RecordingState.Paused,
                     modifier = Modifier.size(visualizerSize)
+                )
+
+                // ─── ローカルWhisper切替 (波形の下、操作ボタンの上) ───
+                LocalWhisperToggle(
+                    useOnDevice = useOnDeviceAsr,
+                    onChange = { viewModel.setUseOnDeviceAsr(it) }
                 )
 
                 // ─── 下部：操作ボタン ────────────────────
@@ -574,6 +584,60 @@ private fun formatDuration(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%02d:%02d".format(min, sec)
+}
+
+/**
+ * 録音開始前のローカルWhisper ON/OFF ラジオグループ。
+ * 設定画面 > 呼び出しモード > オンデバイスWhisper と StateFlow 経由で同期。
+ */
+@Composable
+private fun LocalWhisperToggle(
+    useOnDevice: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "ローカルWhisper",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = !useOnDevice,
+                        onClick = { onChange(false) }
+                    )
+                    Text("OFF", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = useOnDevice,
+                        onClick = { onChange(true) }
+                    )
+                    Text("ON", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
 }
 
 private fun stateLabel(state: RecordingState): String = when (state) {

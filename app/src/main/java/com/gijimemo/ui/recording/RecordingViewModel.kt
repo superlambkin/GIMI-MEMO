@@ -83,6 +83,18 @@ class RecordingViewModel @Inject constructor(
         _lastSavedSession.value = null
     }
 
+    /**
+     * 設定画面の「オンデバイスWhisper」と同期する StateFlow。
+     * 録音画面にラジオボタンで露出させ、ユーザーが録音前に切替可能にする。
+     */
+    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 設定画面に通知するため、SettingsRepository 経由で永続化する。 */
+    fun setUseOnDeviceAsr(enabled: Boolean) {
+        viewModelScope.launch { settings.setUseOnDeviceAsr(enabled) }
+    }
+
     // ─── 録音タイマー ───────────────────────────────────────
     // ViewModel 側に「録音開始 wall-clock ミリ秒」を保持し、UI は
     // currentTimeMillis - startTime を 200ms ごとに再計算して表示する。
