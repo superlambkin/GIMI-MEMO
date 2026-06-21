@@ -2,6 +2,7 @@ package com.gijimemo.data.db
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
 
@@ -22,7 +23,9 @@ data class SessionEntity(
     val llmModel: String? = null,
     val errorMessage: String? = null,
     val processingDurationMs: Long = 0L,
-    val rawTranscript: String? = null
+    val rawTranscript: String? = null,
+    val transcribeDurationMs: Long = 0L,
+    val llmCallMode: String? = null       // LlmCallMode.name
 )
 
 fun SessionEntity.toDomain(): Session = Session(
@@ -41,7 +44,9 @@ fun SessionEntity.toDomain(): Session = Session(
     llmModel = llmModel,
     errorMessage = errorMessage,
     processingDurationMs = processingDurationMs,
-    rawTranscript = rawTranscript
+    rawTranscript = rawTranscript,
+    transcribeDurationMs = transcribeDurationMs,
+    llmCallMode = llmCallMode?.let { runCatching { LlmCallMode.valueOf(it) }.getOrNull() }
 )
 
 fun Session.toEntity(): SessionEntity = SessionEntity(
@@ -60,5 +65,7 @@ fun Session.toEntity(): SessionEntity = SessionEntity(
     llmModel = llmModel,
     errorMessage = errorMessage,
     processingDurationMs = processingDurationMs,
-    rawTranscript = rawTranscript
+    rawTranscript = rawTranscript,
+    transcribeDurationMs = transcribeDurationMs,
+    llmCallMode = llmCallMode?.name
 )

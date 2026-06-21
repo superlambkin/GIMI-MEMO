@@ -34,5 +34,15 @@ data class Session(
      * 文字起こし結果の原文（要約前のテキスト）。TXTファイル生成に使用。
      * null の場合は transcriptMd を TXT に使用（後方互換）。
      */
-    val rawTranscript: String? = null
+    val rawTranscript: String? = null,
+    /**
+     * 文字起こしのみの処理時間 (ms)。WHISPER_THEN_SUMMARY 経路で 0 より大きい値。
+     * 0L は未計測 / マルチモーダル経路。
+     */
+    val transcribeDurationMs: Long = 0L,
+    /**
+     * 実行時の呼び出しモード。PreviewScreen で文字起こし時間の表示判定に使用。
+     * null = 未記録 (旧データ / インポート直後)。
+     */
+    val llmCallMode: LlmCallMode? = null
 )

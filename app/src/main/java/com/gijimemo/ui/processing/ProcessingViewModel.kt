@@ -109,6 +109,10 @@ class ProcessingViewModel @Inject constructor(
     private var cachedModel: String = ""
     private var cachedPrompt: String = ""
     private var cachedUseOnDevice: Boolean = false
+    /** 実行時の呼び出しモード。finalizeSession() で Session に保存。 */
+    private var cachedCallMode: LlmCallMode = LlmCallMode.MULTIMODAL
+    /** 文字起こしフェーズの開始時刻 (transcribe 専用時間計測用)。 */
+    private var transcribeStartMs: Long = 0L
     /** 文字起こし専用 OpenAI Whisper クライアント */
     private var cachedWhisperClient: LlmClient? = null
     /** 文字起こし開始時刻 (start() で記録)。完了時に合計時間として表示する。 */
@@ -181,6 +185,7 @@ class ProcessingViewModel @Inject constructor(
                 // 常にユーザーが選択したプロバイダを使用（autoProviderMode は設定画面にUIがなく無効化済み）
                 val providerConfig = settings.selectedProvider()
                 val callMode = settings.defaultCallMode.first()
+                cachedCallMode = callMode
 
                 // 文字起こし（ASR）はユーザー設定に従う（LLMプロバイダのマルチモーダル対応とは無関係）
                 val useOnDevice = settings.useOnDeviceAsr.first()
@@ -267,11 +272,14 @@ class ProcessingViewModel @Inject constructor(
         _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice)
 
         try {
+            transcribeStartMs = System.currentTimeMillis()
             val transcript = client.transcribeOnly(audioFile)
-            Log.d(tag, "Transcribe complete: ${transcript.length} chars")
+            val transcribeElapsed = System.currentTimeMillis() - transcribeStartMs
+            Log.d(tag, "Transcribe complete: ${transcript.length} chars in ${transcribeElapsed}ms")
             _state.value = ProcessingState(
                 phase = ProcessingPhase.TRANSCRIBED,
-                rawTranscript = transcript
+                rawTranscript = transcript,
+                transcribeDurationMs = transcribeElapsed
             )
         } catch (e: Exception) {
             handleError(e)
@@ -636,7 +644,13 @@ A: （回答）
                             val fullText = stripThinkTags(event.fullText.ifEmpty { sb.toString() })
                             val elapsed = System.currentTimeMillis() - processingStartMs
                             Log.d(tag, "Summary Complete: ${fullText.length} chars, elapsed=${elapsed}ms")
-                            finalizeSession(fullText, cachedProviderName, cachedModel, rawTranscript = text)
+                            finalizeSession(
+                                fullText,
+                                cachedProviderName,
+                                cachedModel,
+                                rawTranscript = text,
+                                transcribeDurationMs = _state.value.transcribeDurationMs
+                            )
                             _state.value = _state.value.copy(
                                 phase = ProcessingPhase.COMPLETED,
                                 summaryText = fullText,
@@ -687,7 +701,7 @@ A: （回答）
                     val fullText = stripThinkTags(event.fullText.ifEmpty { sb.toString() })
                     val elapsed = System.currentTimeMillis() - processingStartMs
                     Log.d(tag, "Stream Complete: ${fullText.length} chars, model=${event.model}, elapsed=${elapsed}ms")
-                    finalizeSession(fullText, cachedProviderName, cachedModel)
+                    finalizeSession(fullText, cachedProviderName, cachedModel, transcribeDurationMs = 0L)
                     _state.value = _state.value.copy(
                         phase = ProcessingPhase.COMPLETED,
                         summaryText = fullText,
@@ -774,7 +788,8 @@ A: （回答）
         markdown: String,
         providerName: String,
         model: String,
-        rawTranscript: String? = null
+        rawTranscript: String? = null,
+        transcribeDurationMs: Long = 0L
     ) {
         val elapsed = if (processingStartMs > 0L) {
             System.currentTimeMillis() - processingStartMs
@@ -786,7 +801,9 @@ A: （回答）
                 llmProvider = providerName,
                 llmModel = model,
                 status = SessionStatus.READY,
-                processingDurationMs = elapsed
+                processingDurationMs = elapsed,
+                transcribeDurationMs = transcribeDurationMs,
+                llmCallMode = cachedCallMode
             )
             repo.save(updated)
         }
@@ -959,6 +976,9 @@ A: （回答）
             splitTimeMs = estimatedSplitMs
         )
 
+        // 文字起こし専用時間計測開始
+        transcribeStartMs = System.currentTimeMillis()
+
         val cacheDir = File(context.cacheDir, "chunk_cache").apply { mkdirs() }
         val t0 = System.currentTimeMillis()
 
@@ -973,7 +993,7 @@ A: （回答）
                 _state.value = ProcessingState(
                     phase = ProcessingPhase.TRANSCRIBED,
                     rawTranscript = transcript,
-                    transcribeDurationMs = System.currentTimeMillis() - processingStartMs,
+                    transcribeDurationMs = System.currentTimeMillis() - transcribeStartMs,
                     activeProvider = "OpenAI (Whisper)",
                     activeModel = "whisper-1"
                 )
@@ -1066,7 +1086,7 @@ A: （回答）
             viewModelScope.launch { settings.setTranscribePerfFactor(newFactor) }
             Log.d(tag, "[PERF] ${mb}MB in ${totalSec.toInt()}s → ${"%.1f".format(newFactor)}s/MB")
 
-            val transcribeElapsed = System.currentTimeMillis() - processingStartMs
+            val transcribeElapsed = System.currentTimeMillis() - transcribeStartMs
             _state.value = ProcessingState(
                 phase = ProcessingPhase.TRANSCRIBED,
                 rawTranscript = result,

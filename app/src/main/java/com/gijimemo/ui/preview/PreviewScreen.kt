@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.ui.settings.SettingsViewModel
 
 @Composable
@@ -158,11 +159,21 @@ fun PreviewScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
-            val ms = state.session?.processingDurationMs ?: 0L
-            if (ms > 0L) {
+            val session = state.session
+            val transcribeMs = session?.transcribeDurationMs ?: 0L
+            val totalMs = session?.processingDurationMs ?: 0L
+            // 表示判定: WHISPER_THEN_SUMMARY かつ文字起こし時間記録あり → 文字起こし時間のみ表示
+            // フォールバック: 合計時間 / 何もなければ非表示
+            val label: String? = when {
+                session?.llmCallMode == LlmCallMode.WHISPER_THEN_SUMMARY && transcribeMs > 0L ->
+                    "文字起こし: ${formatProcessingDuration(transcribeMs)}"
+                totalMs > 0L -> formatProcessingDuration(totalMs)
+                else -> null
+            }
+            if (label != null) {
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "(${formatProcessingDuration(ms)})",
+                    text = "($label)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
