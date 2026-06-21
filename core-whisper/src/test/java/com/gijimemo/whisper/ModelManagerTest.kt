@@ -37,31 +37,31 @@ class ModelManagerTest {
     fun `availableModels has exactly one bundled model`() {
         val bundled = modelManager.availableModels.filter { it.isBundled }
         assertThat(bundled).hasSize(1)
-        assertThat(bundled.first().name).isEqualTo("ggml-base.bin")
+        assertThat(bundled.first().name).isEqualTo("ggml-base-q5_1.bin")
     }
 
     @Test
     fun `isBundledModelExtracted returns false before extraction`() {
         // Fresh state: no file on disk yet.
-        assertThat(modelManager.isBundledModelExtracted("ggml-base.bin")).isFalse()
+        assertThat(modelManager.isBundledModelExtracted("ggml-base-q5_1.bin")).isFalse()
     }
 
     @Test
     fun `isBundledModelExtracted returns true once file is on disk`() {
         // Simulate the post-extraction state without actually running the
-        // 141 MB copy.
-        val target = modelManager.getModelFile("ggml-base.bin")
+        // 57 MB copy.
+        val target = modelManager.getModelFile("ggml-base-q5_1.bin")
         target.parentFile?.mkdirs()
         target.writeBytes(ByteArray(1024) { 0x55 })
 
-        assertThat(modelManager.isBundledModelExtracted("ggml-base.bin")).isTrue()
+        assertThat(modelManager.isBundledModelExtracted("ggml-base-q5_1.bin")).isTrue()
     }
 
     @Test
     fun `isModelDownloaded returns true for bundled models without touching storage`() = runTest {
         // Bundled models are always considered "downloaded" — we can extract
         // them on demand from APK assets, so on-disk presence is irrelevant.
-        assertThat(modelManager.isModelDownloaded("ggml-base.bin")).isTrue()
+        assertThat(modelManager.isModelDownloaded("ggml-base-q5_1.bin")).isTrue()
     }
 
     @Test

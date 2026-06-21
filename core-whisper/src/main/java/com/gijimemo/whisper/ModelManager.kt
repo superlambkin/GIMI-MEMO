@@ -39,13 +39,14 @@ class ModelManager @Inject constructor(
 
     /** Available models. First entry is the default. */
     val availableModels: List<WhisperModelInfo> = listOf(
-        // v0.7.2〜: 標準は GGUF Q4_0 同梱 (約42MB、精度と速度のバランス)
+        // v0.7.2〜: 標準は Q5_1 量子化 (約57MB、whisper.cpp 1.7.4 時点で利用可能な
+        // 最軽量の量子化モデル)。GGUF 形式は当時未提供のため GGML .bin 形式を採用。
         WhisperModelInfo(
-            name = "ggml-base-q4_0.gguf",
-            displayName = "標準 (GGUF Q4_0 base, ~42MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q4_0.gguf",
-            sizeBytes = 44082944L,
-            description = "APK同梱: 4bit量子化・推奨",
+            name = "ggml-base-q5_1.bin",
+            displayName = "標準 (Q5_1 base, ~57MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+            sizeBytes = 59707625L,
+            description = "APK同梱: 4bit級量子化・推奨",
             isBundled = true
         ),
         WhisperModelInfo(
@@ -64,15 +65,15 @@ class ModelManager @Inject constructor(
             description = "ダウンロード: 最速、精度低め"
         ),
         WhisperModelInfo(
-            name = "ggml-base-q5_1.bin",
-            displayName = "軽量 (Q5_1, ~57MB)",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
-            sizeBytes = 57L * 1024 * 1024,
-            description = "推奨: 精度と速度のバランス最適"
+            name = "ggml-base-q8_0.bin",
+            displayName = "高精度 (Q8_0 base, ~78MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q8_0.bin",
+            sizeBytes = 78L * 1024 * 1024,
+            description = "ダウンロード: 8bit量子化・精度重視"
         ),
         WhisperModelInfo(
             name = "ggml-tiny-q5_1.bin",
-            displayName = "超軽量 (Q5_1, ~30MB)",
+            displayName = "超軽量 (Q5_1 tiny, ~30MB)",
             url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
             sizeBytes = 30L * 1024 * 1024,
             description = "最速、短い録音向け"

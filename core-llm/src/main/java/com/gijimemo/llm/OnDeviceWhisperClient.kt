@@ -55,7 +55,7 @@ class OnDeviceWhisperClient(
 
         // 1. Ensure bundled model is extracted to filesDir (no-op after first launch).
         //    For non-bundled models, fall back to network download.
-        val modelName = "ggml-base-q4_0.gguf"
+        val modelName = "ggml-base-q5_1.bin"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info != null && info.isBundled) {
             modelManager.ensureBundledModel(modelName)
@@ -120,7 +120,7 @@ class OnDeviceWhisperClient(
     }
 
     override suspend fun testConnection(): String {
-        val modelName = "ggml-base-q4_0.gguf"
+        val modelName = "ggml-base-q5_1.bin"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info == null || !modelManager.isModelDownloaded(modelName)) {
             return "オンデバイスWhisper: モデル未ダウンロード"
@@ -162,7 +162,7 @@ class OnDeviceWhisperClient(
             return@withContext
         }
         try {
-            val modelName = "ggml-base-q4_0.gguf"
+            val modelName = "ggml-base-q5_1.bin"
             val info = modelManager.availableModels.find { it.name == modelName }
             if (info != null && info.isBundled) {
                 modelManager.ensureBundledModel(modelName)

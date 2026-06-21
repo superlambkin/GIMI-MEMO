@@ -28,10 +28,14 @@ class StartupViewModel @Inject constructor(
     private val _state = MutableStateFlow<StartupState>(StartupState.Checking)
     val state: StateFlow<StartupState> = _state.asStateFlow()
 
-    private val bundledModelName = "ggml-base.bin"
+    // v0.7.2: ハードコードではなく、availableModels の isBundled=true 先頭を動的に取得。
+    // モデル切替時にここを変更する必要がない。
+    private val bundledModelName: String = modelManager.availableModels
+        .firstOrNull { it.isBundled }
+        ?.name ?: error("No bundled model defined in ModelManager.availableModels")
 
     init {
-        // Clean up the v0.2.0-era legacy model if a user is upgrading.
+        // Clean up legacy models (v0.2.0-era + v0.7.1-era) if user is upgrading.
         modelManager.cleanupLegacyModel()
         startExtraction()
     }

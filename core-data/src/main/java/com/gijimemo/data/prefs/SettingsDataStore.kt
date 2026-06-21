@@ -209,7 +209,7 @@ Q: （質問） A: （回答）
 
     val useOnDeviceAsr: Flow<Boolean> = context.dataStore.data.map { it[keyUseOnDeviceAsr] ?: false }
 
-    val whisperModel: Flow<String> = context.dataStore.data.map { it[keyWhisperModel] ?: "ggml-base.bin" }
+    val whisperModel: Flow<String> = context.dataStore.data.map { it[keyWhisperModel] ?: "ggml-base-q5_1.bin" }
 
     suspend fun setUseOnDeviceAsr(v: Boolean) = context.dataStore.edit { it[keyUseOnDeviceAsr] = v }
 
