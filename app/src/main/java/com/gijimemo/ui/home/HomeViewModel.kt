@@ -3,6 +3,9 @@ package com.gijimemo.ui.home
 import android.content.ContentValues
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.media.MediaMetadataRetriever.METADATA_KEY_BITRATE
+import android.media.MediaMetadataRetriever.METADATA_KEY_DURATION
+import android.media.MediaMetadataRetriever.METADATA_KEY_SAMPLERATE
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -16,8 +19,10 @@ import com.gijimemo.data.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -36,6 +41,15 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     val sessions: StateFlow<List<Session>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * 直近にインポートしたファイルのメタ情報。ImportReviewScreen で参照する。
+     * ファイル選択直後に set、ImportReviewScreen 表示中にのみ値を持つ。
+     */
+    private val _lastImportedMeta = MutableStateFlow<ImportedAudioMeta?>(null)
+    val lastImportedMeta: StateFlow<ImportedAudioMeta?> = _lastImportedMeta.asStateFlow()
+
+    fun clearImportedMeta() { _lastImportedMeta.value = null }
 
     /** 起動時に TRANSCRIBING でスタックしたセッションを ERROR にリセット */
     init {
@@ -70,18 +84,45 @@ class HomeViewModel @Inject constructor(
                 val id = UUID.randomUUID().toString()
                 val outFile = File(context.filesDir, "audio/$id.mp3")
                 outFile.parentFile?.mkdirs()
+                // 元ファイルの表示名 (OpenableColumns.DISPLAY_NAME) を取得
+                val originalDisplayName = withContext(Dispatchers.IO) {
+                    context.contentResolver.query(
+                        uri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null, null, null
+                    )?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) else null
+                    }
+                } ?: uri.lastPathSegment ?: outFile.name
+                // 元ファイルの最終更新日時 (可能なら取得)
+                // OpenableColumns.LAST_MODIFIED は API 29+ のため、文字列定数で参照し
+                // pre-Q 端末では null になっても問題ない (importedAtMs で代用表示する)。
+                val originalLastModifiedMs = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                            if (c.moveToFirst()) {
+                                val idx = c.getColumnIndex("last_modified")
+                                if (idx >= 0) c.getLong(idx) else null
+                            } else null
+                        }
+                    }.getOrNull()
+                } ?: 0L
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         outFile.outputStream().use { output -> input.copyTo(output) }
                     } ?: error("无法打开输入流")
                 }
-                val durationMs = withContext(Dispatchers.IO) {
+                // MediaMetadataRetriever で duration / sampleRate / bitRate を取得
+                val meta = withContext(Dispatchers.IO) {
                     MediaMetadataRetriever().runCatching {
                         setDataSource(outFile.absolutePath)
-                        extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                            ?.toLongOrNull() ?: 0L
-                    }.getOrNull() ?: 0L
+                        val dur = extractMetadata(METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                        val sr = extractMetadata(METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
+                        val br = extractMetadata(METADATA_KEY_BITRATE)?.toIntOrNull() ?: 0
+                        Triple(dur, sr, br)
+                    }.getOrNull() ?: Triple(0L, 0, 0)
                 }
+                val (durationMs, sampleRate, bitRate) = meta
                 val title = "インポート ${SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date())}"
                 val session = Session(
                     id = id,
@@ -93,6 +134,17 @@ class HomeViewModel @Inject constructor(
                     status = SessionStatus.STOPPED
                 )
                 repo.save(session)
+                // v0.7.2: ImportReviewScreen で表示するメタ情報を StateFlow に流す
+                _lastImportedMeta.value = ImportedAudioMeta(
+                    fileName = originalDisplayName,
+                    fileLocation = outFile.absolutePath,
+                    sampleRate = sampleRate,
+                    bitRate = bitRate,
+                    durationMs = durationMs,
+                    fileSizeBytes = outFile.length(),
+                    importedAtMs = System.currentTimeMillis(),
+                    originalLastModifiedMs = originalLastModifiedMs
+                )
                 onImported(id)
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "importAudioFile failed", e)
@@ -162,3 +214,25 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * v0.7.2: インポートした音声ファイルのメタ情報。ImportReviewScreen で表示。
+ * - fileName: 元の表示ファイル名 (例: "meeting_2024.mp3")
+ * - fileLocation: 内部保存先パス (例: "/data/data/.../files/audio/{uuid}.mp3")
+ * - sampleRate: Hz (0 = 不明)
+ * - bitRate: bps (0 = 不明)
+ * - durationMs: ミリ秒
+ * - fileSizeBytes: バイト
+ * - importedAtMs: インポート実行時刻
+ * - originalLastModifiedMs: 元ファイルの最終更新日時 (取得不可なら 0)
+ */
+data class ImportedAudioMeta(
+    val fileName: String,
+    val fileLocation: String,
+    val sampleRate: Int,
+    val bitRate: Int,
+    val durationMs: Long,
+    val fileSizeBytes: Long,
+    val importedAtMs: Long,
+    val originalLastModifiedMs: Long
+)

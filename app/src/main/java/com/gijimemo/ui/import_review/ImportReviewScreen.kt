@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.ui.recording.PlaybackState
+import com.gijimemo.ui.home.HomeViewModel
+import com.gijimemo.ui.home.ImportedAudioMeta
 
 /**
  * MP3 インポート直後の確認画面。
@@ -52,10 +54,13 @@ import com.gijimemo.ui.recording.PlaybackState
 fun ImportReviewScreen(
     onTranscribe: (sessionId: String, lang: String) -> Unit,
     onCancel: () -> Unit,
-    viewModel: ImportReviewViewModel = hiltViewModel()
+    viewModel: ImportReviewViewModel = hiltViewModel(),
+    // v0.7.2: HomeViewModel を共有し、インポート時のメタ情報 (SR/BR/ファイル名等) を参照。
+    homeViewModel: HomeViewModel = hiltViewModel()
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val importedMeta by homeViewModel.lastImportedMeta.collectAsStateWithLifecycle()
 
     Box(
         modifier = Modifier
@@ -103,6 +108,11 @@ fun ImportReviewScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         letterSpacing = 2.sp
                     )
+                }
+                // v0.7.2: インポートファイルのメタ情報 (SR/BR/ファイル名/場所/生成日時)
+                importedMeta?.let { meta ->
+                    Spacer(Modifier.height(12.dp))
+                    ImportedAudioMetaCard(meta)
                 }
             }
 
@@ -206,6 +216,7 @@ fun ImportReviewScreen(
                     Button(
                         onClick = {
                             viewModel.stopPlayback()
+                            homeViewModel.clearImportedMeta()
                             onTranscribe(viewModel.sessionId, "ja")
                         },
                         enabled = session != null,
@@ -223,6 +234,7 @@ fun ImportReviewScreen(
                     Button(
                         onClick = {
                             viewModel.stopPlayback()
+                            homeViewModel.clearImportedMeta()
                             onTranscribe(viewModel.sessionId, "zh")
                         },
                         enabled = session != null,
@@ -241,7 +253,10 @@ fun ImportReviewScreen(
 
                 // キャンセル: Session 削除 + ホームへ戻る
                 OutlinedButton(
-                    onClick = { viewModel.cancelImport(onCancel) },
+                    onClick = {
+                        homeViewModel.clearImportedMeta()
+                        viewModel.cancelImport(onCancel)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
@@ -265,4 +280,61 @@ private fun formatDurationLabel(ms: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%02d:%02d".format(min, sec)
+}
+
+/** v0.7.2: インポートファイルのメタ情報表示カード (SR/BR/ファイル名/場所/生成日時) */
+@Composable
+private fun ImportedAudioMetaCard(meta: ImportedAudioMeta) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // サンプリングレート / ビットレート
+            val srText = if (meta.sampleRate > 0) "${meta.sampleRate / 1000}kHz" else "—"
+            val brText = if (meta.bitRate > 0) "${meta.bitRate / 1000}kbps" else "—"
+            MetaRow(label = "形式", value = "$srText · $brText")
+            // ファイル名 (元ファイル名)
+            MetaRow(label = "ファイル名", value = meta.fileName)
+            // ファイル場所 (内部保存先)
+            MetaRow(label = "保存先", value = meta.fileLocation)
+            // ファイル生成日時 (元ファイルの最終更新日時、なければインポート時刻)
+            val ts = if (meta.originalLastModifiedMs > 0L) meta.originalLastModifiedMs else meta.importedAtMs
+            val dateText = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.JAPAN).format(java.util.Date(ts))
+            val tag = if (meta.originalLastModifiedMs > 0L) "元ファイル更新" else "インポート"
+            MetaRow(label = "生成日時", value = "$dateText ($tag)")
+            // ファイルサイズ
+            val sizeText = when {
+                meta.fileSizeBytes < 1024 -> "${meta.fileSizeBytes} B"
+                meta.fileSizeBytes < 1024 * 1024 -> "${meta.fileSizeBytes / 1024} KB"
+                else -> "%.1f MB".format(meta.fileSizeBytes / 1024.0 / 1024.0)
+            }
+            MetaRow(label = "サイズ", value = sizeText)
+        }
+    }
+}
+
+@Composable
+private fun MetaRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(72.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
 }
