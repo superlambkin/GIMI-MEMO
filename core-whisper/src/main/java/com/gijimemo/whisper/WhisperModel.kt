@@ -9,14 +9,33 @@ import java.io.File
  */
 interface WhisperModel {
 
-    /** Load a GGML model file. Must call once before transcribe. */
-    fun load(modelFile: File)
+    /** Load a GGML model file. Must call once before transcribe.
+     *  v0.7.2: useGpu=true で OpenCL/GPU 経由のロードを試行。
+     */
+    fun load(modelFile: File, useGpu: Boolean = false)
 
     /** Transcribe PCM float data (16kHz mono, normalized -1.0..1.0). Returns full text. */
     fun transcribe(audioData: FloatArray): String
 
+    /** Transcribe with explicit language hint ("ja" / "zh" / "en" など。null なら自動検出)。
+     *  デフォルトは language を無視し既存 transcribe にフォールバック。
+     */
+    fun transcribe(audioData: FloatArray, language: String?): String = transcribe(audioData)
+
     /** Transcribe and return segmented results with timing. */
     fun transcribeWithTimestamps(audioData: FloatArray): List<WhisperSegment>
+
+    /**
+     * v0.7.2: 30秒窓 + 2秒オーバーラップで転写 (WhisperModelImpl の拡張メソッド)。
+     * デフォルトは transcribe() にフォールバック。Impl 以外で呼ぶとオーバーラップ
+     * 処理は無効化される(将来拡張)。
+     */
+    fun transcribeWithOverlap(
+        audioData: FloatArray,
+        language: String?,
+        windowMs: Int = 30_000,
+        overlapMs: Int = 2_000
+    ): String = transcribe(audioData, language)
 
     /** Transcribe a WAV file (16-bit 16kHz mono). Loads, decodes, transcribes. */
     fun transcribeFile(wavFile: File): String

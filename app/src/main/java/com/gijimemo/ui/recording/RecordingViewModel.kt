@@ -92,6 +92,12 @@ class RecordingViewModel @Inject constructor(
     private val _recordingStartMs = MutableStateFlow<Long?>(null)
     val recordingStartMs: StateFlow<Long?> = _recordingStartMs.asStateFlow()
 
+    // 録音中画面の上部に表示する現在の録音パラメータ（サンプリングレート / ビットレート）。
+    // startRecording() で設定、stop/discard で null に戻す。UI は RecordingState.Recording
+    // の間のみ表示するため、record 開始前は null でも問題なし。
+    private val _recordingConfig = MutableStateFlow<AudioProcessingConfig?>(null)
+    val recordingConfig: StateFlow<AudioProcessingConfig?> = _recordingConfig.asStateFlow()
+
     private val _playbackState = MutableStateFlow(PlaybackState.Idle)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
@@ -139,6 +145,8 @@ class RecordingViewModel @Inject constructor(
                 automaticGainControl = settings.enableAutomaticGainControl.first(),
                 voiceActivityDetection = settings.enableVoiceActivityDetection.first()
             )
+            // 録音中の画面上部で SR/BR 表示するため StateFlow に流す
+            _recordingConfig.value = config
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startRecordingApi29(id, config)
@@ -204,6 +212,7 @@ class RecordingViewModel @Inject constructor(
         }
         // タイマー停止
         _recordingStartMs.value = null
+        _recordingConfig.value = null
         audioFilePath = location
         val sizeBytes = queryAudioSize(location)
         val session = Session(
@@ -258,6 +267,7 @@ class RecordingViewModel @Inject constructor(
             _sessionId.value = null
             _lastSavedSession.value = null
             _recordingStartMs.value = null
+            _recordingConfig.value = null
             Log.d(TAG, "Recording discarded (sessionId=$sessionId)")
         }
     }

@@ -107,6 +107,7 @@ fun RecordingScreen(
     val lastSavedSession by viewModel.lastSavedSession.collectAsState()
     val lastSavedSessionId: String? = lastSavedSession?.id
     val recordingStartMs by viewModel.recordingStartMs.collectAsState()
+    val recordingConfig by viewModel.recordingConfig.collectAsState()
     var showCancelDialog by remember { mutableStateOf(false) }
 
     // ページ初期化: 経過時間表示のみリセット。
@@ -186,6 +187,31 @@ fun RecordingScreen(
                         color = stateColor(state),
                         fontWeight = FontWeight.SemiBold
                     )
+                    // 録音中のみ現在設定のサンプリングレート/ビットレートを上部に小さく表示
+                    val cfg = recordingConfig
+                    if (cfg != null && state == RecordingState.Recording) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "${cfg.sampleRate / 1000}kHz",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "·",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${cfg.bitRate / 1000}kbps",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = formatDuration(elapsedMs),

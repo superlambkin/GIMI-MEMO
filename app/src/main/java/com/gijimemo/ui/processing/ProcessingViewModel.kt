@@ -246,11 +246,18 @@ class ProcessingViewModel @Inject constructor(
         cachedProviderName = providerConfig.name
         cachedModel = model
 
+        // v0.7.2: Whisper+要約経路 + オンデバイスWhisper 有効時のみ OpenCL/GPU を有効化。
+        // それ以外 (MULTIMODAL やクラウド文字起こし) では CPU のみで動作。
+        val callMode = settings.defaultCallMode.first()
+        val useGpu = useOnDeviceAsr && callMode == LlmCallMode.WHISPER_THEN_SUMMARY
+        Log.d(tag, "initializeLlmClient: useOnDeviceAsr=$useOnDeviceAsr callMode=$callMode → useGpu=$useGpu")
+
         return provider.createClient(
             config = providerConfig,
             apiKey = apiKey,
             model = model,
             useOnDeviceAsr = useOnDeviceAsr,
+            useGpu = useGpu,
             langHint = langHint
         )
     }

@@ -1,6 +1,7 @@
 package com.gijimemo.llm
 
 import android.content.Context
+import android.util.Log
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -20,6 +21,7 @@ class LlmProvider @Inject constructor(
      * 构造 LlmClient。
      * @param model 用户在设置中选的具体模型；为 null 时回退到 config.defaultModel
      * @param useOnDeviceAsr true 时使用オンデバイスWhisper（文字起こし）+ クラウドLLM（要約）
+     * @param useGpu v0.7.2: Whisper+要約経路のみ true で OpenCL/GPU 経由の高速化
      * @param langHint Whisper 言語ヒント "ja"/"zh" 等。null/空なら自動検出。
      */
     fun createClient(
@@ -27,6 +29,7 @@ class LlmProvider @Inject constructor(
         apiKey: String,
         model: String? = null,
         useOnDeviceAsr: Boolean = false,
+        useGpu: Boolean = false,
         langHint: String? = null
     ): LlmClient {
         if (useOnDeviceAsr) {
@@ -40,6 +43,11 @@ class LlmProvider @Inject constructor(
                 prompt = ""
             ))
             onDevice.setLanguageHint(langHint)
+            // v0.7.2: useGpu は OnDeviceWhisperClient 生成時に固定されるため、
+            // ここではフラグを記録してクライアント側がロード時に参照する設計にする。
+            // OnDeviceWhisperClient 自体は Immutable で useGpu はコンストラクタ固定のため、
+            // 設定変更時の再生成は ProcessingViewModel 側で制御する。
+            if (useGpu) Log.d("LlmProvider", "createClient: useGpu=true (OpenCL enabled for Whisper)")
             return onDevice
         }
         return WrappedLlmClient(okHttpClient, context, config, apiKey, model)

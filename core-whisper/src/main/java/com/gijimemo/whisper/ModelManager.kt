@@ -39,13 +39,22 @@ class ModelManager @Inject constructor(
 
     /** Available models. First entry is the default. */
     val availableModels: List<WhisperModelInfo> = listOf(
+        // v0.7.2〜: 標準は GGUF Q4_0 同梱 (約42MB、精度と速度のバランス)
+        WhisperModelInfo(
+            name = "ggml-base-q4_0.gguf",
+            displayName = "標準 (GGUF Q4_0 base, ~42MB)",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q4_0.gguf",
+            sizeBytes = 44082944L,
+            description = "APK同梱: 4bit量子化・推奨",
+            isBundled = true
+        ),
         WhisperModelInfo(
             name = "ggml-base.bin",
-            displayName = "標準 (FP16 base, ~141MB)",
+            displayName = "高精度 (FP16 base, ~141MB) ※旧版",
             url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
             sizeBytes = 147951465L,
-            description = "APK同梱: 高精度",
-            isBundled = true
+            description = "旧FP16。ダウンロード経路でのみ提供",
+            isBundled = false
         ),
         WhisperModelInfo(
             name = "ggml-tiny.bin",
@@ -163,7 +172,7 @@ class ModelManager @Inject constructor(
      * - `ggml-tiny.bin`: short-lived tiny experiment (reverted to base for accuracy)
      */
     fun cleanupLegacyModel() {
-        listOf("ggml-base-q5_1.bin", "ggml-tiny.bin").forEach { name ->
+        listOf("ggml-base-q5_1.bin", "ggml-tiny.bin", "ggml-base.bin").forEach { name ->
             val legacy = getModelFile(name)
             if (legacy.exists()) {
                 Log.d(TAG, "Removing legacy model: ${legacy.name} (${legacy.length()} bytes)")

@@ -27,7 +27,7 @@ android {
     // 2) On older devices without AAPT2 packaging, this still reduces APK size
     //    because the binary is already pseudo-random and incompressible.
     androidResources {
-        noCompress += listOf("bin")
+        noCompress += listOf("bin", "gguf")
     }
 
     buildTypes {

@@ -27,7 +27,9 @@ class OnDeviceWhisperClient(
     private val context: Context,
     private val whisperModel: WhisperModel,
     private val modelManager: ModelManager,
-    private val openAiClient: OpenAiCompatibleClient
+    private val openAiClient: OpenAiCompatibleClient,
+    /** v0.7.2: Whisper+要約経路のみ true。OpenCL/GPU 経由の高速化。 */
+    private val useGpu: Boolean = false
 ) : LlmClient {
 
     private var currentOptions: LlmOptions? = null
@@ -53,7 +55,7 @@ class OnDeviceWhisperClient(
 
         // 1. Ensure bundled model is extracted to filesDir (no-op after first launch).
         //    For non-bundled models, fall back to network download.
-        val modelName = "ggml-base.bin"
+        val modelName = "ggml-base-q4_0.gguf"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info != null && info.isBundled) {
             modelManager.ensureBundledModel(modelName)
@@ -68,7 +70,7 @@ class OnDeviceWhisperClient(
         // 2. Load model (skip if already loaded by preload)
         if (!whisperModel.isLoaded) {
             Log.d(TAG, "Whisper model not preloaded; loading now (this is slow)")
-            whisperModel.load(modelFile)
+            whisperModel.load(modelFile, useGpu)
         } else {
             Log.d(TAG, "Whisper model already preloaded — skip load")
         }
@@ -81,8 +83,13 @@ class OnDeviceWhisperClient(
                 AudioDecoder.decodeToWav(audioFile.absolutePath, outDir)
             }
 
-            // 4. Transcribe
-            val result = whisperModel.transcribeFile(File(wavFile), languageHint)
+            // 4. Transcribe (v0.7.2: 30秒窓 + 2秒オーバーラップで高精度・高速化)
+            //    WhisperModelImpl なら transcribeFileWithOverlap()、それ以外は通常経路。
+            val result = if (whisperModel is com.gijimemo.whisper.WhisperModelImpl) {
+                whisperModel.transcribeFileWithOverlap(File(wavFile), languageHint)
+            } else {
+                whisperModel.transcribeFile(File(wavFile), languageHint)
+            }
 
             // 5. Cleanup temp WAV
             File(wavFile).delete()
@@ -113,7 +120,7 @@ class OnDeviceWhisperClient(
     }
 
     override suspend fun testConnection(): String {
-        val modelName = "ggml-base.bin"
+        val modelName = "ggml-base-q4_0.gguf"
         val info = modelManager.availableModels.find { it.name == modelName }
         if (info == null || !modelManager.isModelDownloaded(modelName)) {
             return "オンデバイスWhisper: モデル未ダウンロード"
@@ -155,7 +162,7 @@ class OnDeviceWhisperClient(
             return@withContext
         }
         try {
-            val modelName = "ggml-base.bin"
+            val modelName = "ggml-base-q4_0.gguf"
             val info = modelManager.availableModels.find { it.name == modelName }
             if (info != null && info.isBundled) {
                 modelManager.ensureBundledModel(modelName)
@@ -166,7 +173,7 @@ class OnDeviceWhisperClient(
             val modelFile = modelManager.getModelFile(modelName)
             Log.d(TAG, "preloadModel: loading ${modelFile.absolutePath}")
             val t0 = System.currentTimeMillis()
-            whisperModel.load(modelFile)
+            whisperModel.load(modelFile, useGpu)
             Log.d(TAG, "preloadModel: loaded in ${System.currentTimeMillis() - t0}ms")
         } catch (e: Exception) {
             Log.w(TAG, "preloadModel failed (will retry at transcribe time): ${e.message}", e)

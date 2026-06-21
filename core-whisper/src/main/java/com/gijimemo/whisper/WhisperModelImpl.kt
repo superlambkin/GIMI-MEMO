@@ -16,19 +16,20 @@ import java.nio.ShortBuffer
 class WhisperModelImpl : WhisperModel {
 
     private var nativePtr: Long = 0
-    private val numThreads: Int = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+    // CPUコア数 - 1 (OSとバックグラウンド用に1コア予約)。1コア端末では下限1にクランプ。
+    private val numThreads: Int = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
 
     override val isLoaded: Boolean get() = nativePtr != 0L
 
-    override fun load(modelFile: File) {
+    override fun load(modelFile: File, useGpu: Boolean) {
         if (nativePtr != 0L) release()
 
         if (!modelFile.exists()) {
             throw IllegalStateException("Model file not found: ${modelFile.absolutePath}")
         }
-        Log.d(TAG, "Loading model: ${modelFile.absolutePath}")
+        Log.d(TAG, "Loading model: ${modelFile.absolutePath} (useGpu=$useGpu)")
 
-        val ptr = WhisperJniBridge.initContext(modelFile.absolutePath)
+        val ptr = WhisperJniBridge.initContext(modelFile.absolutePath, useGpu)
         if (ptr == 0L) {
             throw IllegalStateException("Failed to load Whisper model: ${modelFile.absolutePath}")
         }
@@ -44,7 +45,7 @@ class WhisperModelImpl : WhisperModel {
      * Transcribe with explicit language hint.
      * @param language "ja" / "zh" / "en" など。null なら whisper 自動検出。
      */
-    fun transcribe(audioData: FloatArray, language: String?): String {
+    override fun transcribe(audioData: FloatArray, language: String?): String {
         checkLoaded()
         Log.d(TAG, "Transcribing ${audioData.size} samples with $numThreads threads, lang=${language ?: "auto"}")
         WhisperJniBridge.fullTranscribe(nativePtr, numThreads, language, audioData)
@@ -76,6 +77,54 @@ class WhisperModelImpl : WhisperModel {
         }
     }
 
+    /**
+     * v0.7.2: 30秒窓 + 2秒オーバーラップで文字起こし。
+     * stride = windowMs - overlapMs = 28000ms でループ。
+     * 各窓のテキストを空白区切りで連結。重複排除は将来拡張 (v0.7.3)。
+     */
+    override fun transcribeWithOverlap(
+        audioData: FloatArray,
+        language: String?,
+        windowMs: Int,
+        overlapMs: Int
+    ): String {
+        checkLoaded()
+        val sampleRate = 16000
+        val windowSamples = windowMs * sampleRate / 1000
+        val strideSamples = (windowMs - overlapMs) * sampleRate / 1000
+        val totalSamples = audioData.size
+        Log.d(TAG, "transcribeWithOverlap: total=${totalSamples} window=${windowMs}ms overlap=${overlapMs}ms stride=${strideSamples} samples")
+
+        val sb = StringBuilder()
+        var offsetSamples = 0
+        while (offsetSamples < totalSamples) {
+            val endSamples = minOf(offsetSamples + windowSamples, totalSamples)
+            val chunkSize = endSamples - offsetSamples
+            // 0.5秒未満の残りはスキップ (推論精度低)
+            if (chunkSize < sampleRate / 2) break
+
+            val chunk = FloatArray(chunkSize)
+            System.arraycopy(audioData, offsetSamples, chunk, 0, chunkSize)
+            val offsetMs = offsetSamples * 1000 / sampleRate
+            val durationMs = chunkSize * 1000 / sampleRate
+            Log.d(TAG, "  window: offset=${offsetMs}ms duration=${durationMs}ms samples=$chunkSize")
+
+            WhisperJniBridge.fullTranscribeChunked(
+                nativePtr, numThreads, language, chunk, offsetMs, durationMs
+            )
+
+            val count = WhisperJniBridge.getTextSegmentCount(nativePtr)
+            for (i in 0 until count) {
+                if (sb.isNotEmpty()) sb.append(" ")
+                sb.append(WhisperJniBridge.getTextSegment(nativePtr, i))
+            }
+            offsetSamples += strideSamples
+        }
+        val text = sb.toString().trim()
+        Log.d(TAG, "transcribeWithOverlap complete: ${text.length} chars")
+        return text
+    }
+
     override fun transcribeFile(wavFile: File): String {
         return transcribeFile(wavFile, language = null)
     }
@@ -84,6 +133,12 @@ class WhisperModelImpl : WhisperModel {
     override fun transcribeFile(wavFile: File, language: String?): String {
         val pcmFloat = readWavAsFloat(wavFile)
         return transcribe(pcmFloat, language)
+    }
+
+    /** v0.7.2: ファイル読み込み → transcribeWithOverlap のヘルパー。 */
+    fun transcribeFileWithOverlap(wavFile: File, language: String?): String {
+        val pcmFloat = readWavAsFloat(wavFile)
+        return transcribeWithOverlap(pcmFloat, language)
     }
 
     override fun release() {
@@ -196,5 +251,8 @@ class WhisperModelImpl : WhisperModel {
 
     companion object {
         private const val TAG = "WhisperModel"
+        // v0.7.2: 30秒窓 + 2秒オーバーラップで高精度・高速化
+        const val WINDOW_MS = 30_000
+        const val OVERLAP_MS = 2_000
     }
 }

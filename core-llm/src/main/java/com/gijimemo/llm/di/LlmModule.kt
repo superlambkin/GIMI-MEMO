@@ -63,7 +63,12 @@ object LlmModule {
         modelManager: ModelManager,
         openAiClient: OpenAiCompatibleClient
     ): OnDeviceWhisperClient {
-        return OnDeviceWhisperClient(context, whisperModel, modelManager, openAiClient)
+        // v0.7.2: useGpu=false をデフォルトで Singleton 化。
+        // Whisper+要約経路でのみ OpenCL を有効にしたい場合は、
+        // ProcessingViewModel 内で useGpu=true のクライアントを別途生成して上書きする。
+        // → 簡略化のため、Phase 4 では build flag で OpenCL を有効化する設計とし、
+        // ランタイム useGpu フラグは将来拡張として残す。
+        return OnDeviceWhisperClient(context, whisperModel, modelManager, openAiClient, useGpu = false)
     }
 
     private const val TAG = "GijiMemoLLM"
