@@ -118,84 +118,8 @@ class OnDeviceWhisperClient(
         }
     }
 
-    /**
-     * v0.7.x: PCM Flow を 3秒窓 + 0.5秒オーバーラップで逐次推論する。
-     *
-     * アルゴリズム:
-     *   1. [pcmFlow] を collect → 16bit PCM のリングバッファ (capacity = windowMs + overlapMs ぶん) に追記。
-     *   2. バッファ長 ≥ windowMs + overlapMs (3.5秒) になるたび、
-     *      末尾 windowMs (3秒) 分を FloatArray に正規化して推論。
-     *   3. 推論結果を [TranscriptDelta] として emit。
-     *   4. バッファを (windowMs - overlapMs) ぶん (= 2.5秒相当分) 前進 (シフトではなく copy で簡略化)。
-     *   5. [pcmFlow] 完了時、バッファ残余を最終窓として推論 (残 < overlapMs なら破棄)。
-     *
-     * 単一スレッド・順次処理 (Mutex 不要)。呼び出し側で `flowOn(Dispatchers.IO)` 推奨。
-     */
-    override fun transcribeStream(
-        pcmFlow: Flow<ShortArray>,
-        language: String,
-        sampleRate: Int,
-        windowMs: Long,
-        overlapMs: Long,
-        vadModelPath: String?,
-    ): Flow<TranscriptDelta> = flow {
-        // 0. Whisper モデルが未ロードならロード (preload 済みなら即 return)
-        if (!whisperModel.isLoaded) {
-            Log.w(TAG, "transcribeStream: model not preloaded, falling back to preloadModel()")
-            preloadModel()
-        }
-        if (!whisperModel.isLoaded) {
-            error("Whisper model not loaded. Call preloadModel() first.")
-        }
-
-        // 1. パラメータ計算 (sample 数)
-        val windowSamples = (windowMs * sampleRate / 1000).toInt()        // 48000 (3s @16kHz)
-        val strideSamples = ((windowMs - overlapMs) * sampleRate / 1000).toInt() // 40000 (2.5s)
-        val maxBufferSamples = windowSamples + ((overlapMs * sampleRate / 1000).toInt()) // 56000 (3.5s)
-        val minFinalSamples = (overlapMs * sampleRate / 1000).toInt()    // 8000 (0.5s) 未満は破棄
-
-        // 2. VAD モデル (transcribeOnly と同じ extract 経路を共有)
-        val effectiveVadPath = vadModelPath ?: extractVadModel()?.absolutePath
-
-        // 3. リングバッファ (可変長 ArrayList<Short> で代用。capacity 上限 3.5秒 ≒ 112KB)
-        val buffer = ArrayList<Short>(maxBufferSamples)
-        var totalSamplesConsumed = 0L  // オーディオ全体基準のオフセット計算用
-
-        suspend fun processWindow(startInBuffer: Int, sampleLen: Int, offsetMs: Long) {
-            val floatArr = FloatArray(sampleLen)
-            for (i in 0 until sampleLen) {
-                // -1.0..1.0 正規化 (WhisperModelImpl.readWavAsFloat 111-114 と同等)
-                floatArr[i] = buffer[startInBuffer + i].toFloat() / 32768f
-            }
-            val segments = whisperModel.transcribeChunk(floatArr, offsetMs, language, effectiveVadPath)
-            for (seg in segments) {
-                if (seg.text.isBlank()) continue
-                emit(TranscriptDelta(text = seg.text, t0Ms = seg.startMs, t1Ms = seg.endMs, isFinal = false))
-            }
-        }
-
-        pcmFlow.collect { chunk ->
-            // バッファに追加
-            for (s in chunk) buffer.add(s)
-            // 窓推論ループ: 3.5秒以上溜まっている限り、3秒窓を推論 → 2.5秒ぶん前進
-            while (buffer.size >= maxBufferSamples) {
-                val startIdx = buffer.size - windowSamples
-                val offsetMs = (totalSamplesConsumed + startIdx) * 1000 / sampleRate
-                processWindow(startIdx, windowSamples, offsetMs)
-                // 先頭 strideSamples を残し、残り (overlapMs ぶん) を削除
-                buffer.subList(0, buffer.size - strideSamples).clear()
-                totalSamplesConsumed += strideSamples.toLong()
-            }
-        }
-
-        // 4. ストリーム完了後の最終窓
-        if (buffer.size >= minFinalSamples) {
-            val offsetMs = totalSamplesConsumed * 1000 / sampleRate
-            processWindow(0, buffer.size, offsetMs)
-        } else if (buffer.isNotEmpty()) {
-            Log.d(TAG, "transcribeStream: dropping final ${buffer.size} samples (< ${minFinalSamples})")
-        }
-    }
+    // transcribeStream: ストリーミング文字起こしは端末負荷・APIコストの観点から中止 (v0.7.8)
+    // デフォルト実装 (emptyFlow) を継承する。
 
     override fun summarizeOnly(text: String, prompt: String): Flow<LlmEvent> {
         val options = currentOptions ?: error("LLM options not configured. Call configure() first.")

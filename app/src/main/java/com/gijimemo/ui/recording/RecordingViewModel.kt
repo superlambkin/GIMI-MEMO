@@ -19,19 +19,15 @@ import com.gijimemo.data.model.SessionStatus
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.OnDeviceWhisperClient
-import com.gijimemo.llm.TranscriptDelta
-import com.gijimemo.ui.processing.TranscriptionService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -61,6 +57,10 @@ class RecordingViewModel @Inject constructor(
     // ここは必須依存として注入する (録音中の preload は no-op フォールバックで安全)。
     private val onDeviceWhisper: OnDeviceWhisperClient
 ) : ViewModel() {
+
+    // 録画設定（SR/BR）。init ブロックより前に宣言が必要。
+    private val _recordingConfig = MutableStateFlow(AudioProcessingConfig())
+    val recordingConfig: StateFlow<AudioProcessingConfig> = _recordingConfig.asStateFlow()
 
     init {
         // Idle 状態でも録音設定（SR/BR）を表示するため、起動時に読み込む
@@ -125,18 +125,6 @@ class RecordingViewModel @Inject constructor(
     private val _recordingStartMs = MutableStateFlow<Long?>(null)
     val recordingStartMs: StateFlow<Long?> = _recordingStartMs.asStateFlow()
 
-    // 録音中画面の上部に表示する現在の録音パラメータ（サンプリングレート / ビットレート）。
-    // startRecording() で設定、stop/discard で null に戻す。UI は RecordingState.Recording
-    // の間のみ表示するため、record 開始前は null でも問題なし。
-    private val _recordingConfig = MutableStateFlow<AudioProcessingConfig?>(null)
-    val recordingConfig: StateFlow<AudioProcessingConfig?> = _recordingConfig.asStateFlow()
-
-    // v0.7.x: ストリーミング文字起こしの中間結果。3秒窓ごとに onDeviceWhisper.transcribeStream
-    // が emit する TranscriptDelta を逐次追記する。停止 / 破棄時にクリア。
-    private val _partialTranscript = MutableStateFlow("")
-    val partialTranscript: StateFlow<String> = _partialTranscript.asStateFlow()
-    private var streamingJob: Job? = null
-
     private val _playbackState = MutableStateFlow(PlaybackState.Idle)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
@@ -154,8 +142,6 @@ class RecordingViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        streamingJob?.cancel()
-        streamingJob = null
         releasePlayer()
         closePendingFd()
     }
@@ -179,36 +165,6 @@ class RecordingViewModel @Inject constructor(
         // 30〜90 秒のモデル読み込み待ちが削減される。
         viewModelScope.launch(Dispatchers.IO) {
             try { onDeviceWhisper.preloadModel() } catch (_: Exception) { /* 起動経路には影響させない */ }
-        }
-
-        // 画面消灯・プロセスキルイープからの保護: Service 起動 + WakeLock 取得
-        TranscriptionService.start(context)
-        // 部分転写をクリア（前セッションの残骸を表示しないため）
-        _partialTranscript.value = ""
-
-        // ストリーミング文字起こし: AudioRecorder.pcmChunkFlow を購読し、
-        // 3秒窓 + 0.5秒オーバーラップで逐次推論。結果は _partialTranscript に追記。
-        // 設定で「オンデバイスWhisper」が OFF の場合は起動しない（UI 仕様に合わせる）。
-        streamingJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val useOnDevice = settings.useOnDeviceAsr.first()
-                if (!useOnDevice) {
-                    Log.d(TAG, "streaming skipped: useOnDeviceAsr=false")
-                    return@launch
-                }
-                onDeviceWhisper.transcribeStream(
-                    pcmFlow = recorder.pcmChunkFlow,
-                    language = "", // 言語ヒントは現状設定 UI なし → 自動検出
-                    sampleRate = 16000,
-                    windowMs = 3000,
-                    overlapMs = 500,
-                ).collect { delta: TranscriptDelta ->
-                    _partialTranscript.update { it + delta.text + " " }
-                }
-            } catch (e: Exception) {
-                // 部分転写エラーは致命的ではない、ログのみ
-                Log.w(TAG, "Streaming transcribe failed: ${e.message}", e)
-            }
         }
 
         viewModelScope.launch {
@@ -275,9 +231,6 @@ class RecordingViewModel @Inject constructor(
 
     suspend fun stopRecording(title: String, durationMs: Long): Session? {
         val id = _sessionId.value ?: return null
-        // ストリーミング推論を停止（PCM 供給源が recorder.stop() で止まるため）
-        streamingJob?.cancel()
-        streamingJob = null
         try {
             recorder.stop()
         } catch (e: Exception) {
@@ -292,7 +245,7 @@ class RecordingViewModel @Inject constructor(
         }
         // タイマー停止
         _recordingStartMs.value = null
-        _recordingConfig.value = null
+        _recordingConfig.value = AudioProcessingConfig()
         audioFilePath = location
         val sizeBytes = queryAudioSize(location)
         val session = Session(
@@ -307,10 +260,6 @@ class RecordingViewModel @Inject constructor(
         repo.save(session)
         // UI 侧（Stopped 状態）用: stopRecording 成功結果を ViewModel 内で保持
         _lastSavedSession.value = session
-        // Phase 6: ストリーミング推論 Service（録音中に動いているケース）を停止。
-        // 未起動時の stop() は no-op で冪等。確定転写は既存フローの
-        // StoppedPlaybackAndTranscribe → Processing 起動で実行される。
-        TranscriptionService.stop(context)
         return session
     }
 
@@ -321,10 +270,6 @@ class RecordingViewModel @Inject constructor(
      */
     fun discardRecording() {
         viewModelScope.launch {
-            // ストリーミング推論を停止して部分転写をクリア
-            streamingJob?.cancel()
-            streamingJob = null
-            _partialTranscript.value = ""
             try {
                 recorder.stop()
             } catch (e: Exception) {
@@ -355,9 +300,7 @@ class RecordingViewModel @Inject constructor(
             _sessionId.value = null
             _lastSavedSession.value = null
             _recordingStartMs.value = null
-            _recordingConfig.value = null
-            // Phase 6: 破棄時も念のため推論 Service を停止（冪等）。
-            TranscriptionService.stop(context)
+            _recordingConfig.value = AudioProcessingConfig()
             Log.d(TAG, "Recording discarded (sessionId=$sessionId)")
         }
     }

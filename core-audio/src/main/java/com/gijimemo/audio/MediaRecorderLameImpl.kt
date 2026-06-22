@@ -65,11 +65,14 @@ class MediaRecorderLameImpl @Inject constructor(
     /** PCM ループ停止フラグ（stop() で読み取りループを安全に抜けるため）。 */
     @Volatile private var pcmReadStop: Boolean = false
 
-    /** v0.7.x: MediaRecorder.start() 直後に AudioRecord を並走起動。 */
+    /** v0.7.x: MediaRecorder.start() 直後に AudioRecord を並走起動。
+     * Whisper は 16kHz 固定入力のため、sampleRate 引数は無視して常に 16000 で初期化する。
+     * AudioSource は UNPROCESSED → MIC → VOICE_RECOGNITION の順にフォールバックする。 */
     private fun startPcmStream(sampleRate: Int) {
         releasePcmStream()
+        val pcmSr = 16000 // Whisper は 16kHz 固定
         val minBuffer = AudioRecord.getMinBufferSize(
-            sampleRate,
+            pcmSr,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
@@ -78,24 +81,27 @@ class MediaRecorderLameImpl @Inject constructor(
             return
         }
         val bufferSize = minBuffer * 2
-        val record = try {
-            AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-        } catch (e: SecurityException) {
-            Log.w(TAG, "startPcmStream: RECORD_AUDIO not granted: ${e.message}")
-            return
-        } catch (e: Exception) {
-            Log.w(TAG, "startPcmStream: AudioRecord ctor failed: ${e.message}")
-            return
+        val audioSources = intArrayOf(
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+        )
+        var record: AudioRecord? = null
+        for (src in audioSources) {
+            try {
+                val r = AudioRecord(src, pcmSr, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+                if (r.state == AudioRecord.STATE_INITIALIZED) {
+                    Log.i(TAG, "startPcmStream: AudioRecord created with source=$src")
+                    record = r
+                    break
+                }
+                r.release()
+            } catch (_: Exception) {
+                // 次の source を試す
+            }
         }
-        if (record.state != AudioRecord.STATE_INITIALIZED) {
-            Log.w(TAG, "startPcmStream: AudioRecord not initialized, releasing")
-            record.release()
+        if (record == null) {
+            Log.w(TAG, "startPcmStream: no suitable AudioSource found")
             return
         }
         audioRecord = record

@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Mic
@@ -117,7 +116,6 @@ fun RecordingScreen(
     val lastSavedSessionId: String? = lastSavedSession?.id
     val recordingStartMs by viewModel.recordingStartMs.collectAsState()
     val recordingConfig by viewModel.recordingConfig.collectAsState()
-    val partialTranscript by viewModel.partialTranscript.collectAsState()
     var showCancelDialog by remember { mutableStateOf(false) }
 
     // ページ初期化: 経過時間表示のみリセット。
@@ -199,7 +197,7 @@ fun RecordingScreen(
                     )
                     // 録音中と録音開始画面に現在設定のサンプリングレート/ビットレートを表示
                     val cfg = recordingConfig
-                    if (cfg != null && (state == RecordingState.Recording || state == RecordingState.Idle)) {
+                    if (state == RecordingState.Recording || state == RecordingState.Idle) {
                         Spacer(Modifier.height(4.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -242,8 +240,6 @@ fun RecordingScreen(
                     )
                 }
 
-                // ─── 部分転写（ストリーミング文字起こし） ───
-                PartialTranscriptView(text = partialTranscript)
                 // ─── 下部：操作ボタン ────────────────────
 
                 Column(
@@ -796,41 +792,3 @@ private fun AmplitudeVisualizer(
     }
 }
 
-/**
- * v0.7.x: ライブ文字起こし（仮）表示欄。ストリーミング推論の中間結果を
- * 新しい行が下に来るよう逆順スクロールで表示する。空文字なら非表示。
- */
-@Composable
-private fun PartialTranscriptView(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    if (text.isBlank()) return
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(max = 200.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "ライブ文字起こし（仮）",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
-            // reverseLayout = true で末尾が画面下に来る（追記型テキスト向け）
-            LazyColumn(reverseLayout = true) {
-                item {
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        }
-    }
-}
