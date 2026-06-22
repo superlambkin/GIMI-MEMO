@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Mic
@@ -94,7 +95,6 @@ fun RecordingScreen(
 
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsState()
 
     // v0.7.3: 画面離脱時に再生中の音声を停止
     DisposableEffect(Unit) { onDispose { viewModel.stopPlayback() } }
@@ -117,6 +117,7 @@ fun RecordingScreen(
     val lastSavedSessionId: String? = lastSavedSession?.id
     val recordingStartMs by viewModel.recordingStartMs.collectAsState()
     val recordingConfig by viewModel.recordingConfig.collectAsState()
+    val partialTranscript by viewModel.partialTranscript.collectAsState()
     var showCancelDialog by remember { mutableStateOf(false) }
 
     // ページ初期化: 経過時間表示のみリセット。
@@ -196,9 +197,9 @@ fun RecordingScreen(
                         color = stateColor(state),
                         fontWeight = FontWeight.SemiBold
                     )
-                    // 録音中のみ現在設定のサンプリングレート/ビットレートを上部に小さく表示
+                    // 録音中と録音開始画面に現在設定のサンプリングレート/ビットレートを表示
                     val cfg = recordingConfig
-                    if (cfg != null && state == RecordingState.Recording) {
+                    if (cfg != null && (state == RecordingState.Recording || state == RecordingState.Idle)) {
                         Spacer(Modifier.height(4.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -231,21 +232,20 @@ fun RecordingScreen(
                     )
                 }
 
-                // ─── 中央：波形可視化 ────────────────────
-                AmplitudeVisualizer(
-                    buffer = amplitudeBuffer,
-                    isActive = state == RecordingState.Recording,
-                    isPaused = state == RecordingState.Paused,
-                    modifier = Modifier.size(visualizerSize)
-                )
+                // ─── 中央：波形可視化（録音中/一時停止中のみ表示） ────
+                if (state == RecordingState.Recording || state == RecordingState.Paused) {
+                    AmplitudeVisualizer(
+                        buffer = amplitudeBuffer,
+                        isActive = state == RecordingState.Recording,
+                        isPaused = state == RecordingState.Paused,
+                        modifier = Modifier.size(visualizerSize)
+                    )
+                }
 
-                // ─── ローカルWhisper切替 (波形の下、操作ボタンの上) ───
-                LocalWhisperToggle(
-                    useOnDevice = useOnDeviceAsr,
-                    onChange = { viewModel.setUseOnDeviceAsr(it) }
-                )
-
+                // ─── 部分転写（ストリーミング文字起こし） ───
+                PartialTranscriptView(text = partialTranscript)
                 // ─── 下部：操作ボタン ────────────────────
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -278,6 +278,7 @@ fun RecordingScreen(
                                 StoppedPlaybackAndTranscribe(
                                     lastSavedSessionId = lastSavedSessionId,
                                     onTranscribe = onTranscribe,
+                                    onBack = onCancel,
                                     onDiscard = {
                                         viewModel.discardRecording()
                                     },
@@ -437,6 +438,7 @@ fun RecordingScreen(
 private fun StoppedPlaybackAndTranscribe(
     lastSavedSessionId: String,
     onTranscribe: (String, String) -> Unit,
+    onBack: () -> Unit,
     onDiscard: () -> Unit,
     viewModel: RecordingViewModel
 ) {
@@ -570,19 +572,35 @@ private fun StoppedPlaybackAndTranscribe(
         Text("保存（音声ファイル）", fontSize = 15.sp)
     }
     Spacer(Modifier.height(4.dp))
-    // キャンセル: この録音を破棄して新規録音に戻る
-    OutlinedButton(
-        onClick = onDiscard,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    // ─── 戻る + キャンセル (横並び) ─────────────────────────
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(Icons.Filled.Cancel, contentDescription = null)
-        Spacer(Modifier.width(8.dp))
-        Text("キャンセル", fontSize = 15.sp)
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Text("戻る", fontSize = 15.sp)
+        }
+        OutlinedButton(
+            onClick = onDiscard,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error
+            )
+        ) {
+            Icon(Icons.Filled.Cancel, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text("キャンセル", fontSize = 15.sp)
+        }
     }
 }
 
@@ -775,5 +793,44 @@ private fun AmplitudeVisualizer(
             radius = coreRadius,
             center = Offset(cx, cy)
         )
+    }
+}
+
+/**
+ * v0.7.x: ライブ文字起こし（仮）表示欄。ストリーミング推論の中間結果を
+ * 新しい行が下に来るよう逆順スクロールで表示する。空文字なら非表示。
+ */
+@Composable
+private fun PartialTranscriptView(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    if (text.isBlank()) return
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 200.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "ライブ文字起こし（仮）",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            // reverseLayout = true で末尾が画面下に来る（追記型テキスト向け）
+            LazyColumn(reverseLayout = true) {
+                item {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
 }

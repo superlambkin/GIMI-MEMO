@@ -2,6 +2,7 @@
 package com.gijimemo.audio
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import java.io.FileDescriptor
 
 interface AudioRecorder {
@@ -10,6 +11,14 @@ interface AudioRecorder {
 
     /** 实时振幅（用于波形） */
     val amplitude: Flow<Int>
+
+    /**
+     * v0.7.x PCM ストリーム: MediaRecorder 録音と並走で AudioRecord から取得した
+     * 16kHz / mono / PCM_16BIT のチャンクをリアルタイム配信する。
+     * ストリーミング文字起こし (Whisper) での利用を想定。
+     * 起動失敗（permission 不足等）でも Flow は open のまま、stop() まで再試行可能。
+     */
+    val pcmChunkFlow: SharedFlow<ShortArray>
 
     /** 当前录音文件路径，未录音时 null */
     val currentFilePath: String?

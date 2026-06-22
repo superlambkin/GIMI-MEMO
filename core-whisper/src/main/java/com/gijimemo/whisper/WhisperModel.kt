@@ -37,6 +37,27 @@ interface WhisperModel {
         overlapMs: Int = 2_000
     ): String = transcribe(audioData, language)
 
+    /**
+     * v0.7.x: 単一チャンクの PCM float データを文字起こしし、セグメントリストを返す。
+     * Phase 2 で導入。ストリーミング推論 (Phase 3) で使用される。
+     *
+     * @param audioData 16kHz mono 正規化 PCM (FloatArray, -1.0..1.0)
+     * @param offsetMs オーディオ全体基準のチャンク開始時刻 (ms)
+     * @param language "ja" / "zh" / "en" など。null なら自動検出。
+     * @param vadModelPath Silero VAD モデルパス。null なら VAD 無効。
+     * @return セグメントリスト。各セグメントの startMs/endMs は offsetMs を基準とした値。
+     *         デフォルト実装は timestamps 0 の単一セグメントとしてフォールバック。
+     */
+    fun transcribeChunk(
+        audioData: FloatArray,
+        offsetMs: Long,
+        language: String?,
+        vadModelPath: String? = null,
+    ): List<WhisperSegment> {
+        val text = transcribe(audioData, language)
+        return listOf(WhisperSegment(text = text, startMs = offsetMs, endMs = offsetMs))
+    }
+
     /** Transcribe a WAV file (16-bit 16kHz mono). Loads, decodes, transcribes. */
     fun transcribeFile(wavFile: File): String
 

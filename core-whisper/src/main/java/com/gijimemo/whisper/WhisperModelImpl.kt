@@ -6,6 +6,9 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.ShortBuffer
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Implementation of [WhisperModel] backed by whisper.cpp via JNI.
@@ -18,6 +21,8 @@ class WhisperModelImpl : WhisperModel {
     private var nativePtr: Long = 0
     // CPUコア数 - 1 (OSとバックグラウンド用に1コア予約)。1コア端末では下限1にクランプ。
     private val numThreads: Int = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
+    // Phase 2: 単一 native context を複数の chunk で共有するため、transcribeChunk 同士を直列化する。
+    private val chunkMutex = Mutex()
 
     override val isLoaded: Boolean get() = nativePtr != 0L
 
@@ -152,6 +157,42 @@ class WhisperModelImpl : WhisperModel {
         val text = sb.toString().trim()
         Log.d(TAG, "transcribeWithOverlap complete: ${text.length} chars")
         return text
+    }
+
+    /**
+     * v0.7.x: 単一 PCM chunk の文字起こし。セグメントリストを返す。
+     * Phase 2: 単一 native context を複数 chunk で共有するため chunkMutex で直列化し、
+     * JNI getSegmentTimestamp0/1 で真の startMs/endMs を取得する (centiseconds → ms 変換)。
+     */
+    override fun transcribeChunk(
+        audioData: FloatArray,
+        offsetMs: Long,
+        language: String?,
+        vadModelPath: String?
+    ): List<WhisperSegment> = runBlocking {
+        chunkMutex.withLock {
+            checkLoaded()
+            val sampleRate = 16000
+            val durationMs = audioData.size * 1000 / sampleRate
+            if (durationMs <= 0) return@withLock emptyList()
+
+            Log.d(TAG, "transcribeChunk: samples=${audioData.size} offsetMs=$offsetMs durationMs=$durationMs lang=${language ?: "auto"}")
+            WhisperJniBridge.fullTranscribeChunked(
+                nativePtr, numThreads, language, audioData, offsetMs.toInt(), durationMs, vadModelPath
+            )
+
+            val count = WhisperJniBridge.getTextSegmentCount(nativePtr)
+            if (count == 0) return@withLock emptyList()
+
+            return@withLock (0 until count).map { i ->
+                val text = WhisperJniBridge.getTextSegment(nativePtr, i)
+                WhisperSegment(
+                    text = text,
+                    startMs = offsetMs + WhisperJniBridge.getSegmentTimestamp0(nativePtr, i),
+                    endMs = offsetMs + WhisperJniBridge.getSegmentTimestamp1(nativePtr, i),
+                )
+            }
+        }
     }
 
     override fun transcribeFile(wavFile: File): String {

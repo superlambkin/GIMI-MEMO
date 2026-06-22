@@ -220,3 +220,31 @@ Java_com_gijimemo_whisper_WhisperJni_getTextSegment(
     const char *text = whisper_full_get_segment_text(ctx, (int)index);
     return (*env)->NewStringUTF(env, text);
 }
+
+// ─── getSegmentTimestamp0/1 ──────────────────────────────────────────────────────────────────
+// v0.7.x Phase 2: per-segment の真の timestamp (ms) を返す。
+// whisper_full_get_segment_t0/t1 は centiseconds (10ms 単位) を返すため、×10 して ms に変換する。
+
+JNIEXPORT jlong JNICALL
+Java_com_gijimemo_whisper_WhisperJni_getSegmentTimestamp0(
+        JNIEnv *env, jobject thiz, jlong context_ptr, jint segment_index) {
+    (void)env;
+    (void)thiz;
+
+    struct whisper_context *ctx = (struct whisper_context *)context_ptr;
+    if (ctx == NULL) return 0;
+    if (segment_index < 0 || segment_index >= whisper_full_n_segments(ctx)) return 0;
+    return (jlong)(whisper_full_get_segment_t0(ctx, (int)segment_index) * 10);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_gijimemo_whisper_WhisperJni_getSegmentTimestamp1(
+        JNIEnv *env, jobject thiz, jlong context_ptr, jint segment_index) {
+    (void)env;
+    (void)thiz;
+
+    struct whisper_context *ctx = (struct whisper_context *)context_ptr;
+    if (ctx == NULL) return 0;
+    if (segment_index < 0 || segment_index >= whisper_full_n_segments(ctx)) return 0;
+    return (jlong)(whisper_full_get_segment_t1(ctx, (int)segment_index) * 10);
+}

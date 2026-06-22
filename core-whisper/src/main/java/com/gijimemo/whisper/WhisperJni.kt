@@ -52,6 +52,15 @@ class WhisperJni {
 
         /** Get the i-th segment text. */
         @JvmStatic external fun getTextSegment(contextPtr: Long, index: Int): String
+
+        /**
+         * v0.7.x Phase 2: i 番目のセグメント開始時刻 (ms 単位)。
+         * whisper_full_get_segment_t0 は centiseconds (10ms) を返すため、JNI 側で ×10 して ms に変換する。
+         */
+        @JvmStatic external fun getSegmentTimestamp0(contextPtr: Long, segmentIndex: Int): Long
+
+        /** v0.7.x Phase 2: i 番目のセグメント終了時刻 (ms 単位)。 */
+        @JvmStatic external fun getSegmentTimestamp1(contextPtr: Long, segmentIndex: Int): Long
     }
 }
 
@@ -65,4 +74,6 @@ object WhisperJniBridge {
         WhisperJni.fullTranscribeChunked(contextPtr, numThreads, language, audioData, offsetMs, durationMs, vadModelPath)
     fun getTextSegmentCount(contextPtr: Long): Int = WhisperJni.getTextSegmentCount(contextPtr)
     fun getTextSegment(contextPtr: Long, index: Int): String = WhisperJni.getTextSegment(contextPtr, index)
+    fun getSegmentTimestamp0(contextPtr: Long, segmentIndex: Int): Long = WhisperJni.getSegmentTimestamp0(contextPtr, segmentIndex)
+    fun getSegmentTimestamp1(contextPtr: Long, segmentIndex: Int): Long = WhisperJni.getSegmentTimestamp1(contextPtr, segmentIndex)
 }

@@ -2,12 +2,15 @@
 package com.gijimemo.audio
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,6 +44,118 @@ class MediaRecorderLameImpl @Inject constructor(
 
     private val _amplitude = MutableSharedFlow<Int>(replay = 0, extraBufferCapacity = 16)
     override val amplitude: SharedFlow<Int> = _amplitude.asSharedFlow()
+
+    // ─── PCM ストリーム (v0.7.x) ─────────────────────
+    /**
+     * MediaRecorder と並走で AudioRecord から取得した PCM チャンク (16kHz / mono / PCM_16BIT)。
+     * 約 0.25 秒分 (4096 samples) を 1 チャンクとして逐次 emit する。
+     * consumer (Whisper ストリーミング等) は stop() まで購読可能。
+     */
+    private val _pcmChunkFlow = MutableSharedFlow<ShortArray>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    override val pcmChunkFlow: SharedFlow<ShortArray> = _pcmChunkFlow.asSharedFlow()
+
+    /** AudioRecord インスタンス（PCM ストリーム用）。MediaRecorder と独立して管理。 */
+    private var audioRecord: AudioRecord? = null
+    /** PCM 読み取りループを実行中のワーカースレッド。 */
+    private var pcmReadThread: Thread? = null
+    /** PCM ループ停止フラグ（stop() で読み取りループを安全に抜けるため）。 */
+    @Volatile private var pcmReadStop: Boolean = false
+
+    /** v0.7.x: MediaRecorder.start() 直後に AudioRecord を並走起動。 */
+    private fun startPcmStream(sampleRate: Int) {
+        releasePcmStream()
+        val minBuffer = AudioRecord.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBuffer <= 0) {
+            Log.w(TAG, "startPcmStream: invalid minBufferSize=$minBuffer, skipping")
+            return
+        }
+        val bufferSize = minBuffer * 2
+        val record = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+        } catch (e: SecurityException) {
+            Log.w(TAG, "startPcmStream: RECORD_AUDIO not granted: ${e.message}")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "startPcmStream: AudioRecord ctor failed: ${e.message}")
+            return
+        }
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            Log.w(TAG, "startPcmStream: AudioRecord not initialized, releasing")
+            record.release()
+            return
+        }
+        audioRecord = record
+        pcmReadStop = false
+        try {
+            record.startRecording()
+        } catch (e: Exception) {
+            Log.w(TAG, "startPcmStream: startRecording failed: ${e.message}")
+            record.release()
+            audioRecord = null
+            return
+        }
+        pcmReadThread = Thread({
+            val chunk = ShortArray(PCM_CHUNK_SAMPLES)
+            try {
+                while (!pcmReadStop) {
+                    val read = try {
+                        record.read(chunk, 0, chunk.size)
+                    } catch (_: Exception) {
+                        -1
+                    }
+                    if (read <= 0) {
+                        if (read == AudioRecord.ERROR_INVALID_OPERATION ||
+                            read == AudioRecord.ERROR_BAD_VALUE
+                        ) {
+                            break
+                        }
+                        // ERROR (-1) / ERROR_DEAD_OBJECT (-2) は短時間スリープして再試行。
+                        if (read < 0) {
+                            try { Thread.sleep(10) } catch (_: InterruptedException) { break }
+                        }
+                        continue
+                    }
+                    val payload = if (read == chunk.size) chunk else chunk.copyOf(read)
+                    _pcmChunkFlow.tryEmit(payload)
+                }
+            } finally {
+                // ループ脱出時に AudioRecord を解放。
+                try { record.stop() } catch (_: Exception) {}
+                try { record.release() } catch (_: Exception) {}
+            }
+        }, "PcmReadThread").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
+    }
+
+    /** v0.7.x: AudioRecord 停止 + 読み取りループ停止。例外で死んでも try-finally 経由で呼ばれる。 */
+    private fun releasePcmStream() {
+        pcmReadStop = true
+        val thread = pcmReadThread
+        pcmReadThread = null
+        try { thread?.join(200) } catch (_: InterruptedException) {}
+        // thread 内の finally で stop/release 済み。null フォールバック用に明示停止も実施。
+        audioRecord?.let {
+            try { it.stop() } catch (_: Exception) {}
+            try { it.release() } catch (_: Exception) {}
+        }
+        audioRecord = null
+    }
 
     // ─── VAD (Voice Activity Detection) ──────────────────────
     private var vadEnabled = false
@@ -175,6 +290,8 @@ class MediaRecorderLameImpl @Inject constructor(
         _currentFilePath = outputPath
         _state.value = RecordingState.Recording
         handler.post(amplitudePollRunnable)
+        // v0.7.x: ストリーミング文字起こし用に PCM を並走取得
+        startPcmStream(config.sampleRate)
     }
 
     override suspend fun startWithFileDescriptor(outputFd: FileDescriptor, config: AudioProcessingConfig) {
@@ -206,6 +323,8 @@ class MediaRecorderLameImpl @Inject constructor(
         _currentFilePath = null
         _state.value = RecordingState.Recording
         handler.post(amplitudePollRunnable)
+        // v0.7.x: ストリーミング文字起こし用に PCM を並走取得
+        startPcmStream(config.sampleRate)
     }
 
     override suspend fun pause() {
@@ -236,6 +355,8 @@ class MediaRecorderLameImpl @Inject constructor(
             }
         } catch (_: Exception) {
         } finally {
+            // v0.7.x: MediaRecorder が例外で死んでも PCM ストリームを確実に解放
+            try { releasePcmStream() } catch (_: Exception) {}
             rec.reset()
             rec.release()
             recorder = null
@@ -245,5 +366,7 @@ class MediaRecorderLameImpl @Inject constructor(
 
     companion object {
         private const val TAG = "MediaRecorderLameImpl"
+        /** v0.7.x: PCM 1 チャンクあたりのサンプル数 (16kHz 換算で約 0.25 秒)。 */
+        private const val PCM_CHUNK_SAMPLES = 4096
     }
 }
