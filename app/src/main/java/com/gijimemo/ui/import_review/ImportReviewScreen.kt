@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gijimemo.ui.recording.LocalWhisperToggle
 import com.gijimemo.ui.recording.PlaybackState
 import com.gijimemo.ui.home.ImportedAudioMeta
 
@@ -60,6 +61,7 @@ fun ImportReviewScreen(
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsStateWithLifecycle()
     // v0.7.2: Singleton ImportedMetaStore を直接参照し、HomeScreen と同じインスタンスで
     // メタ情報 (SR/BR/ファイル名等) を共有。NavBackStackEntry ごとに HomeViewModel が
     // 別インスタンスになる問題を回避する。
@@ -130,6 +132,12 @@ fun ImportReviewScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+
+            // ─── ローカルWhisper切替 (設定画面と同期) ───
+            LocalWhisperToggle(
+                useOnDevice = useOnDeviceAsr,
+                onChange = { viewModel.setUseOnDeviceAsr(it) }
             )
 
             // ─── 下部: 再生 + 文字起こし + キャンセル ──

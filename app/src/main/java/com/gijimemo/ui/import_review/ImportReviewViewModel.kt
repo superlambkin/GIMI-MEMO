@@ -9,12 +9,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.repository.SessionRepository
+import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.ui.recording.PlaybackState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -30,6 +33,7 @@ import javax.inject.Inject
 class ImportReviewViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repo: SessionRepository,
+    private val settings: SettingsRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -52,6 +56,18 @@ class ImportReviewViewModel @Inject constructor(
         viewModelScope.launch {
             _session.value = repo.getById(sessionId)
         }
+    }
+
+    /**
+     * 設定画面 > 呼び出しモード > オンデバイスWhisper と同期する StateFlow。
+     * 録音確認画面にラジオボタンとして露出させる。
+     */
+    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 設定画面に通知するため SettingsRepository 経由で永続化する。 */
+    fun setUseOnDeviceAsr(enabled: Boolean) {
+        viewModelScope.launch { settings.setUseOnDeviceAsr(enabled) }
     }
 
     override fun onCleared() {

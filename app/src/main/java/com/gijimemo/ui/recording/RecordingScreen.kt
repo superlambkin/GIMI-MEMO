@@ -441,6 +441,7 @@ private fun StoppedPlaybackAndTranscribe(
     viewModel: RecordingViewModel
 ) {
     val pbState by viewModel.playbackState.collectAsState()
+    val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsState()
     when (pbState) {
         PlaybackState.Idle -> {
             FilledTonalButton(
@@ -518,6 +519,12 @@ private fun StoppedPlaybackAndTranscribe(
         )
     }
     Spacer(Modifier.height(4.dp))
+    // ─── ローカルWhisper切替 (設定画面と同期) ──────────────
+    LocalWhisperToggle(
+        useOnDevice = useOnDeviceAsr,
+        onChange = { viewModel.setUseOnDeviceAsr(it) }
+    )
+    Spacer(Modifier.height(4.dp))
     // ─── 言語別 文字起こしボタン (2 列) ────────────────────
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -587,11 +594,13 @@ private fun formatDuration(ms: Long): String {
 }
 
 /**
- * 録音開始前のローカルWhisper ON/OFF ラジオグループ。
+ * ローカルWhisper ON/OFF ラジオグループ。
  * 設定画面 > 呼び出しモード > オンデバイスWhisper と StateFlow 経由で同期。
+ * 録音画面 (RecordingScreen) と録音確認画面 (ImportReviewScreen,
+ * StoppedPlaybackAndTranscribe) の両方から呼ばれる。
  */
 @Composable
-private fun LocalWhisperToggle(
+internal fun LocalWhisperToggle(
     useOnDevice: Boolean,
     onChange: (Boolean) -> Unit
 ) {
