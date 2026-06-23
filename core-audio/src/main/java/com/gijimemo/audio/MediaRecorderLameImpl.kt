@@ -296,8 +296,8 @@ class MediaRecorderLameImpl @Inject constructor(
         _currentFilePath = outputPath
         _state.value = RecordingState.Recording
         handler.post(amplitudePollRunnable)
-        // v0.7.x: ストリーミング文字起こし用に PCM を並走取得
-        startPcmStream(config.sampleRate)
+        // v0.7.x: PCM並走はストリーミング中止に伴い無効化 (v0.8.0)
+        // startPcmStream(config.sampleRate)
     }
 
     override suspend fun startWithFileDescriptor(outputFd: FileDescriptor, config: AudioProcessingConfig) {
@@ -329,8 +329,8 @@ class MediaRecorderLameImpl @Inject constructor(
         _currentFilePath = null
         _state.value = RecordingState.Recording
         handler.post(amplitudePollRunnable)
-        // v0.7.x: ストリーミング文字起こし用に PCM を並走取得
-        startPcmStream(config.sampleRate)
+        // v0.7.x: PCM並走はストリーミング中止に伴い無効化 (v0.8.0)
+        // startPcmStream(config.sampleRate)
     }
 
     override suspend fun pause() {

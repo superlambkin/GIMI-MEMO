@@ -122,6 +122,7 @@ class OpenAiCompatibleClient @Inject constructor(
     // ─── WHISPER THEN SUMMARY ─────────────────────────────────
 
     private suspend fun whisperTranscribe(audioFile: File, options: LlmOptions): String {
+        Log.d(TAG, "whisperTranscribe: language=${options.language}")
         val uploader = MultipartAudioUploader(client)
         return uploader.uploadFile(
             url = "${options.baseUrl}/audio/transcriptions",

@@ -38,6 +38,8 @@ class OnDeviceWhisperClient(
     private var currentOptions: LlmOptions? = null
     /** ユーザー指定の言語ヒント ("ja" / "zh" / null = auto)。configure() で設定。 */
     private var languageHint: String? = null
+    /** 最後にロードしたモデル名。設定変更検出用。 */
+    private var lastLoadedModel: String? = null
 
     override fun transcribeAndFormat(
         audioFile: File,
@@ -72,12 +74,17 @@ class OnDeviceWhisperClient(
         val modelFile = modelManager.getModelFile(modelName)
         Log.d(TAG, "Using model: ${modelFile.absolutePath} (${modelFile.length()} bytes)")
 
-        // 2. Load model (skip if already loaded by preload)
-        if (!whisperModel.isLoaded) {
-            Log.d(TAG, "Whisper model not preloaded; loading now (this is slow)")
-            whisperModel.load(modelFile, useGpu)
+        // 2. Load model (reload if setting changed since preload)
+        if (whisperModel.isLoaded && modelName == lastLoadedModel) {
+            Log.d(TAG, "Whisper model already loaded: $modelName")
         } else {
-            Log.d(TAG, "Whisper model already preloaded — skip load")
+            if (whisperModel.isLoaded) {
+                Log.d(TAG, "Model changed from $lastLoadedModel to $modelName, reloading")
+            } else {
+                Log.d(TAG, "Whisper model not preloaded; loading now (this is slow)")
+            }
+            whisperModel.load(modelFile, useGpu)
+            lastLoadedModel = modelName
         }
 
         // v0.7.4: Silero VAD モデルを assets から展開

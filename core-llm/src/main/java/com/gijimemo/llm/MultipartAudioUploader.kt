@@ -45,7 +45,7 @@ class MultipartAudioUploader @Inject constructor(
             .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
             .addFormDataPart("model", model)
             .addFormDataPart("response_format", "text")
-            .apply { language?.let { addFormDataPart("language", it) } }
+            .apply { language?.let { addFormDataPart("language", it); android.util.Log.d("MultipartUpload", "language=$it") } }
             .build()
         val req = Request.Builder()
             .url(url)

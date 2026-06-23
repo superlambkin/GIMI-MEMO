@@ -19,8 +19,8 @@ import kotlinx.coroutines.sync.withLock
 class WhisperModelImpl : WhisperModel {
 
     private var nativePtr: Long = 0
-    // CPUコア数 - 1 (OSとバックグラウンド用に1コア予約)。1コア端末では下限1にクランプ。
-    private val numThreads: Int = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
+    // 固定4スレッド（8スレッドだとHuawei端末でOpenMP競合クラッシュ）。
+    private val numThreads: Int = 4
     // Phase 2: 単一 native context を複数の chunk で共有するため、transcribeChunk 同士を直列化する。
     private val chunkMutex = Mutex()
 

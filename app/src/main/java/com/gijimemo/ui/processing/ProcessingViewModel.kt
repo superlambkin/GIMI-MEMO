@@ -112,7 +112,9 @@ class ProcessingViewModel @Inject constructor(
 
     val sessionId: String = savedStateHandle.get<String>("sessionId") ?: error("missing sessionId")
     /** ユーザーが選択した文字起こし言語ヒント ("ja" / "zh" / "")。空なら自動判定。 */
-    val langHint: String = savedStateHandle.get<String>("lang") ?: ""
+    val langHint: String = (savedStateHandle.get<String>("lang") ?: "").also {
+        Log.d(tag, "langHint from route: '$it'")
+    }
 
     private val _state = MutableStateFlow(ProcessingState())
     val state: StateFlow<ProcessingState> = _state.asStateFlow()
@@ -124,6 +126,8 @@ class ProcessingViewModel @Inject constructor(
     private var cachedModel: String = ""
     private var cachedPrompt: String = ""
     private var cachedUseOnDevice: Boolean = false
+    /** オンデバイスWhisperのモデル名 */
+    private var cachedWhisperModel: String = ""
     /** v0.7.2: GPU 使用フラグ (OpenCL 有効化フラグを State に伝播) */
     private var cachedUseGpu: Boolean = false
     /** 実行時の呼び出しモード。finalizeSession() で Session に保存。 */
@@ -263,6 +267,7 @@ class ProcessingViewModel @Inject constructor(
         cachedPrompt = buildPromptWithLangHint(prompt, langHint)
         cachedProviderName = providerConfig.name
         cachedModel = model
+        cachedWhisperModel = try { settings.whisperModel.first() } catch (_: Exception) { "default" }
 
         // v0.7.2: Whisper+要約経路 + オンデバイスWhisper 有効時のみ OpenCL/GPU を有効化。
         // v0.7.2: CMakeLists.txt に GGML_USE_OPENCL=1 を組み込んだので true に。
@@ -296,7 +301,18 @@ class ProcessingViewModel @Inject constructor(
     private suspend fun startTranscribePhase(audioFile: File) {
         val client = cachedClient ?: error("Client not initialized")
 
-        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu, threadCount = Runtime.getRuntime().availableProcessors() - 1)
+        val transcribingModel = if (cachedUseOnDevice) {
+            "Whisper(${cachedWhisperModel})"
+        } else {
+            cachedModel
+        }
+        _state.value = ProcessingState(
+            phase = ProcessingPhase.TRANSCRIBING,
+            useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu,
+            threadCount = 4,
+            activeProvider = cachedProviderName,
+            activeModel = transcribingModel
+        )
 
         try {
             transcribeStartMs = System.currentTimeMillis()
@@ -713,7 +729,7 @@ A: （回答）
     ) {
         val client = cachedClient ?: error("Client not initialized")
 
-        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu, threadCount = Runtime.getRuntime().availableProcessors() - 1)
+        _state.value = ProcessingState(phase = ProcessingPhase.TRANSCRIBING, useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu, threadCount = 4)
 
         val sb = StringBuilder()
         client.transcribeAndFormat(audioFile, prompt, mode).collect { event ->

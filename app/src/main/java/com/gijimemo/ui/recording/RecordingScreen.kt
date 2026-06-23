@@ -789,7 +789,7 @@ private fun AmplitudeVisualizer(
         // 振幅ビーム（感度向上）
         for (i in 0 until beamCount) {
             val raw = buffer.sample(i).coerceIn(0f, 1f)
-            val amp = raw * raw * 1.3f // 感度1.3倍
+            val amp = raw * raw * 300f // 感度300倍
             val length = baseRadius * 0.2f + amp * (maxRadius - baseRadius) * 0.95f
             val angle = (i.toDouble() / beamCount) * 2.0 * Math.PI
             val startX = cx + (baseRadius * cos(angle)).toFloat()

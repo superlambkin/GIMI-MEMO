@@ -32,6 +32,12 @@ include(FetchContent)
 FetchContent_Declare(ggml SOURCE_DIR ${WHISPER_LIB_DIR}/ggml)
 FetchContent_MakeAvailable(ggml)
 
+# ─── OpenCL 対応 (v0.8.x reserved) ────────────────────────────────────────
+# ヘッダーとライブラリの存在は確認済みだが、カーネル埋め込みに Python ビルド
+# ステップが必要なため、本リリースでは OpenCL を無効化。
+# 将来: opencl-headers/ + ggml-opencl.cpp + Python kernel embed で再有効化。
+set(HAVE_OPENCL FALSE)
+
 function(build_library target_name)
     add_library(
         ${target_name}
@@ -40,7 +46,13 @@ function(build_library target_name)
     )
 
     target_link_libraries(${target_name} ${LOG_LIB} android ggml)
-    target_compile_definitions(${target_name} PUBLIC GGML_USE_CPU)
+    if (HAVE_OPENCL)
+        target_link_libraries(${target_name} PRIVATE ggml-opencl ${OpenCL_LIBRARY})
+        target_include_directories(${target_name} PRIVATE ${OPENCL_INCLUDE_DIR})
+        target_compile_definitions(${target_name} PUBLIC GGML_USE_OPENCL)
+    else()
+        target_compile_definitions(${target_name} PUBLIC GGML_USE_CPU)
+    endif()
     target_compile_definitions(${target_name} PRIVATE WHISPER_VERSION="1.7.4")
 
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
