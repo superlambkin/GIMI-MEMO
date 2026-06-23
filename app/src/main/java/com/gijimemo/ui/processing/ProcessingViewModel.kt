@@ -316,13 +316,14 @@ class ProcessingViewModel @Inject constructor(
     /**
      * 文字起こしテキストを Download フォルダに TXT で保存する。
      */
-    fun saveTranscriptToDownloads(text: String) {
+    fun saveTranscriptToDownloads(text: String, fileName: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val fileName = "GijiMemo_${System.currentTimeMillis()}.txt"
+                val safeName = if (fileName.isNullOrBlank()) "GijiMemo_${System.currentTimeMillis()}.txt"
+                    else if (fileName.endsWith(".txt")) fileName else "$fileName.txt"
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                         put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
                         put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/GIMI_MEMO")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -346,10 +347,10 @@ class ProcessingViewModel @Inject constructor(
                         ), "GIMI_MEMO"
                     )
                     dir.mkdirs()
-                    val file = File(dir, fileName)
+                    val file = File(dir, safeName)
                     file.writeText(text, Charsets.UTF_8)
                 }
-                Log.d(tag, "Transcript saved to Download/GIMI_MEMO/$fileName")
+                Log.d(tag, "Transcript saved to Download/GIMI_MEMO/$safeName")
                 // UI スレッドで Toast 表示
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "保存しました", android.widget.Toast.LENGTH_SHORT).show()

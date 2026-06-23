@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -440,6 +441,8 @@ private fun StoppedPlaybackAndTranscribe(
 ) {
     val pbState by viewModel.playbackState.collectAsState()
     val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsState()
+    var showSaveDialog by remember { mutableStateOf(false) }
+    val lastSession by viewModel.lastSavedSession.collectAsState()
     when (pbState) {
         PlaybackState.Idle -> {
             FilledTonalButton(
@@ -558,7 +561,7 @@ private fun StoppedPlaybackAndTranscribe(
     Spacer(Modifier.height(4.dp))
     // ─── 保存ボタン ────────────────────────────────────────
     OutlinedButton(
-        onClick = { viewModel.saveAudioToDownloads() },
+        onClick = { showSaveDialog = true },
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
@@ -566,6 +569,50 @@ private fun StoppedPlaybackAndTranscribe(
         Icon(Icons.Filled.VolumeUp, contentDescription = null)
         Spacer(Modifier.width(8.dp))
         Text("保存（音声ファイル）", fontSize = 15.sp)
+    }
+
+    // ─── 保存確認ダイアログ（ファイル名編集可能） ────────
+    if (showSaveDialog && lastSession != null) {
+        val s = lastSession!!
+        val recordStartMs = s.createdAt - s.durationMs // 録音開始時刻 = 保存時刻 - 録音時間
+        val defaultName = "会議_${java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.getDefault()).format(java.util.Date(recordStartMs))}"
+        var fileName by remember(s.id) { mutableStateOf(defaultName) }
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("音声ファイルを保存") },
+            text = {
+                Column {
+                    Text("ファイル名:", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = fileName,
+                        onValueChange = { fileName = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        suffix = { androidx.compose.material3.Text(".m4a") }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "保存先: Download/GIMI_MEMO/",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSaveDialog = false
+                    viewModel.saveAudioToDownloads(fileName)
+                }) {
+                    Text("保存", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) {
+                    Text("キャンセル")
+                }
+            }
+        )
     }
     Spacer(Modifier.height(4.dp))
     // ─── 戻る + キャンセル (横並び) ─────────────────────────

@@ -134,7 +134,7 @@ fun ProcessingScreen(
                     onStop = { viewModel.stopAudio() },
                     onSeek = { viewModel.seekAudio(it) },
                     onSummarize = { showSummaryDialog = true },
-                    onSave = { viewModel.saveTranscriptToDownloads(editedTranscript) },
+                    onSave = { name -> viewModel.saveTranscriptToDownloads(editedTranscript, name) },
                     onRetry = { viewModel.retryTranscribe() },
                     onBack = onError
                 )
@@ -616,10 +616,12 @@ private fun TranscribedContent(
     onStop: () -> Unit,
     onSeek: (Int) -> Unit,
     onSummarize: () -> Unit,
-    onSave: () -> Unit,
+    onSave: (String) -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit
 ) {
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saveFileName by remember { mutableStateOf("GijiMemo_原文") }
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -741,7 +743,7 @@ private fun TranscribedContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedButton(
-                onClick = onSave,
+                onClick = { showSaveDialog = true },
                 enabled = transcript.isNotBlank(),
                 modifier = Modifier
                     .weight(1f)
@@ -759,6 +761,46 @@ private fun TranscribedContent(
                 Text("要約", fontSize = 14.sp)
             }
         }
+    }
+
+    // ─── TXT保存ダイアログ（ファイル名編集可能） ─────
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("TXTファイルを保存") },
+            text = {
+                Column {
+                    Text("ファイル名:", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = saveFileName,
+                        onValueChange = { saveFileName = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        suffix = { Text(".txt") }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "保存先: Download/GIMI_MEMO/",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSaveDialog = false
+                    onSave(saveFileName)
+                }) {
+                    Text("保存", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) {
+                    Text("キャンセル")
+                }
+            }
+        )
     }
 }
 

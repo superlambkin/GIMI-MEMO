@@ -457,16 +457,17 @@ class RecordingViewModel @Inject constructor(
     // ─── 保存 ───────────────────────────────────────────────
 
     /** 録音ファイルを Download/GIMI_MEMO/ にコピー保存 */
-    fun saveAudioToDownloads() {
+    fun saveAudioToDownloads(fileName: String? = null) {
         val location = _lastSavedSession.value?.audioFilePath ?: return
         if (location.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val session = _lastSavedSession.value ?: return@launch
-                val fileName = "${session.id}.m4a"
+                val safeName = if (fileName.isNullOrBlank()) "${session.id}.m4a"
+                    else if (fileName.endsWith(".m4a")) fileName else "$fileName.m4a"
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                         put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
                         put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/GIMI_MEMO")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -498,10 +499,10 @@ class RecordingViewModel @Inject constructor(
                     dir.mkdirs()
                     val src = File(location)
                     if (src.exists()) {
-                        src.copyTo(File(dir, fileName), overwrite = true)
+                        src.copyTo(File(dir, safeName), overwrite = true)
                     }
                 }
-                Log.i(TAG, "Audio saved to Download/GIMI_MEMO/$fileName")
+                Log.i(TAG, "Audio saved to Download/GIMI_MEMO/$safeName")
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "音声ファイルを保存しました", android.widget.Toast.LENGTH_SHORT).show()
                 }
