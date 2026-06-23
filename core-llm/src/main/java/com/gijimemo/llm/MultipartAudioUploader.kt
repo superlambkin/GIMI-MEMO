@@ -26,7 +26,8 @@ class MultipartAudioUploader @Inject constructor(
         url: String,
         apiKey: String,
         model: String,
-        file: File
+        file: File,
+        language: String? = null,
     ): String = withContext(Dispatchers.IO) {
         // ファイル拡張子に基づいて MIME タイプを選択
         val mediaTypeStr = when (file.extension.lowercase()) {
@@ -44,6 +45,7 @@ class MultipartAudioUploader @Inject constructor(
             .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
             .addFormDataPart("model", model)
             .addFormDataPart("response_format", "text")
+            .apply { language?.let { addFormDataPart("language", it) } }
             .build()
         val req = Request.Builder()
             .url(url)

@@ -127,7 +127,8 @@ class OpenAiCompatibleClient @Inject constructor(
             url = "${options.baseUrl}/audio/transcriptions",
             apiKey = options.apiKey,
             model = "whisper-1",
-            file = audioFile
+            file = audioFile,
+            language = options.language?.takeIf { it.isNotBlank() }
         )
     }
 

@@ -50,7 +50,7 @@ class LlmProvider @Inject constructor(
             if (useGpu) Log.d("LlmProvider", "createClient: useGpu=true (OpenCL enabled for Whisper)")
             return onDevice
         }
-        return WrappedLlmClient(okHttpClient, context, config, apiKey, model)
+        return WrappedLlmClient(okHttpClient, context, config, apiKey, model, langHint)
     }
 
     companion object {
@@ -68,7 +68,8 @@ private class WrappedLlmClient(
     private val context: Context,
     private val config: LlmProviderConfig,
     private val apiKey: String,
-    private val modelOverride: String?
+    private val modelOverride: String?,
+    private val langHint: String? = null,
 ) : LlmClient {
     private val delegate = OpenAiCompatibleClient(okHttpClient, context)
 
@@ -90,7 +91,8 @@ private class WrappedLlmClient(
                 LlmCallMode.MULTIMODAL -> LlmOptions.CallMode.MULTIMODAL
                 LlmCallMode.WHISPER_THEN_SUMMARY -> LlmOptions.CallMode.WHISPER_THEN_SUMMARY
             },
-            prompt = prompt
+            prompt = prompt,
+            language = langHint?.takeIf { it.isNotBlank() }
         )
     }
 
