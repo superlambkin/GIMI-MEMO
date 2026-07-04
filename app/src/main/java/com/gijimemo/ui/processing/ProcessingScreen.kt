@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -115,7 +116,8 @@ fun ProcessingScreen(
                     splitTimeMs = state.splitTimeMs,
                     chunkTimeEstimateMs = state.chunkTimeEstimateMs,
                     useGpu = state.useGpu,
-                    threadCount = state.threadCount
+                    threadCount = state.threadCount,
+                    onCancel = onError
                 )
             }
             ProcessingPhase.TRANSCRIBED -> {
@@ -301,7 +303,8 @@ private fun TranscribingContent(
     splitTimeMs: Long = 0L,
     chunkTimeEstimateMs: Long = 0L,
     useGpu: Boolean = false,
-    threadCount: Int = 0
+    threadCount: Int = 0,
+    onCancel: (() -> Unit)? = null,
 ) {
     // v0.7.2: システムメトリクス (CPU/メモリ/GPU) を 1秒間隔で取得
     // 注意: data class を mutableStateOf で持つと、内容が同じ場合に State 変更が
@@ -580,6 +583,19 @@ private fun TranscribingContent(
                 color = MaterialTheme.colorScheme.outline,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        if (onCancel != null) {
+            OutlinedButton(
+                onClick = { onCancel() },
+                modifier = Modifier.heightIn(min = 44.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("キャンセル", fontSize = 14.sp)
+            }
         }
 
         Spacer(Modifier.height(8.dp))
