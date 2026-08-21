@@ -52,10 +52,16 @@ class MultipartAudioUploader @Inject constructor(
             .header("Authorization", "Bearer $apiKey")
             .post(body)
             .build()
-        client.newCall(req).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                throw mapHttpError(resp.code, body)
+        val resp = try {
+            client.newCall(req).execute()
+        } catch (e: java.io.IOException) {
+            // 网络层失败（连接断・DNS・timeout 等）→ 可重试の NetworkError に変換
+            throw LlmException.NetworkError(e)
+        }
+        resp.use {
+            val body = it.body?.string().orEmpty()
+            if (!it.isSuccessful) {
+                throw mapHttpError(it.code, body)
             }
             body
         }
@@ -65,6 +71,7 @@ class MultipartAudioUploader @Inject constructor(
         401 -> LlmException.InvalidApiKey()
         413 -> LlmException.FileTooLarge()
         429 -> LlmException.RateLimited()
+        in 500..599 -> LlmException.ServerError(code, body)
         else -> LlmException.Unknown(RuntimeException("HTTP $code: $body"))
     }
 }

@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.ShortBuffer
@@ -53,77 +54,101 @@ object AudioDecoder {
         decoder.configure(inputFormat, null, null, 0)
         decoder.start()
 
-        // Use dynamically-grown ShortArray to avoid boxing overhead of MutableList<Short>.
-        // For long recordings (~38min → 36M samples), boxing would require ~600MB+ heap
-        // and crash with OOM on devices with 256MB heap limit.
-        var allPcm = ShortArray(65536) // initial capacity (128KB)
-        var pcmSize = 0
+        // v0.9.1: PCM をメモリに蓄積せず WAV ファイルへストリーミング書き出しする。
+        // 従来は全 PCM を ShortArray で保持（40分音声で約 80MB）し、
+        // 256MB ヒープで OOM を引き起こしていた。
+        val outputFile = File(outputDir, "whisper_decoded_${System.nanoTime()}.wav")
+        val fos = FileOutputStream(outputFile)
+        // 44 バイト WAV ヘッダを仮書き（data サイズは最後にパッチ）
+        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray())
+        header.putInt(36)
+        header.put("WAVE".toByteArray())
+        header.put("fmt ".toByteArray())
+        header.putInt(16)
+        header.putShort(1)             // PCM
+        header.putShort(1)             // mono
+        header.putInt(TARGET_SAMPLE_RATE)
+        header.putInt(TARGET_SAMPLE_RATE * 2)
+        header.putShort(2)
+        header.putShort(16)
+        header.put("data".toByteArray())
+        header.putInt(0)
+        fos.write(header.array())
+
+        var pcmSize = 0L
         val bufferInfo = MediaCodec.BufferInfo()
         var inputDone = false
         var outputDone = false
 
-        while (!outputDone) {
-            if (!inputDone) {
-                val inputIndex = decoder.dequeueInputBuffer(1_000L)
-                if (inputIndex >= 0) {
-                    val inputBuffer = decoder.getInputBuffer(inputIndex)
-                    if (inputBuffer == null) {
-                        Log.w(TAG, "dequeueInputBuffer returned null, retrying")
-                        continue
+        try {
+            while (!outputDone) {
+                if (!inputDone) {
+                    val inputIndex = decoder.dequeueInputBuffer(1_000L)
+                    if (inputIndex >= 0) {
+                        val inputBuffer = decoder.getInputBuffer(inputIndex)
+                        if (inputBuffer == null) {
+                            Log.w(TAG, "dequeueInputBuffer returned null, retrying")
+                            continue
+                        }
+                        val sampleSize = extractor.readSampleData(inputBuffer, 0)
+                        if (sampleSize < 0) {
+                            decoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            decoder.queueInputBuffer(inputIndex, 0, sampleSize, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
                     }
-                    val sampleSize = extractor.readSampleData(inputBuffer, 0)
-                    if (sampleSize < 0) {
-                        decoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        inputDone = true
-                    } else {
-                        decoder.queueInputBuffer(inputIndex, 0, sampleSize, extractor.sampleTime, 0)
-                        extractor.advance()
+                }
+
+                val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 1_000L)
+                if (outputIndex >= 0) {
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        outputDone = true
                     }
+                    if (bufferInfo.size > 0) {
+                        val outputBuffer = decoder.getOutputBuffer(outputIndex)
+                        if (outputBuffer == null) {
+                            Log.w(TAG, "dequeueOutputBuffer returned null, skip")
+                            decoder.releaseOutputBuffer(outputIndex, false)
+                            continue
+                        }
+                        outputBuffer.position(bufferInfo.offset)
+                        outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+
+                        // Decoder output: may be 44.1kHz stereo, we need 16kHz mono
+                        val pcmShorts = decodeToMono16kHz(
+                            outputBuffer, inputFormat, bufferInfo
+                        )
+                        // PCM を直接ファイルへ書き出し（メモリに保持しない）
+                        val pcmBytes = ByteBuffer.allocate(pcmShorts.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+                        pcmBytes.asShortBuffer().put(pcmShorts)
+                        fos.write(pcmBytes.array())
+                        pcmSize += pcmShorts.size
+                    }
+                    decoder.releaseOutputBuffer(outputIndex, false)
+                } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    // Format changed, no action needed
                 }
             }
-
-            val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 1_000L)
-            if (outputIndex >= 0) {
-                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                    outputDone = true
-                }
-                if (bufferInfo.size > 0) {
-                    val outputBuffer = decoder.getOutputBuffer(outputIndex)
-                    if (outputBuffer == null) {
-                        Log.w(TAG, "dequeueOutputBuffer returned null, skip")
-                        decoder.releaseOutputBuffer(outputIndex, false)
-                        continue
-                    }
-                    outputBuffer.position(bufferInfo.offset)
-                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-
-                    // Decoder output: may be 44.1kHz stereo, we need 16kHz mono
-                    val pcmShorts = decodeToMono16kHz(
-                        outputBuffer, inputFormat, bufferInfo
-                    )
-                    // Grow ShortArray if needed
-                    val needed = pcmSize + pcmShorts.size
-                    if (needed > allPcm.size) {
-                        val newSize = maxOf(allPcm.size * 2, needed)
-                        allPcm = allPcm.copyOf(newSize)
-                    }
-                    pcmShorts.copyInto(allPcm, pcmSize)
-                    pcmSize += pcmShorts.size
-                }
-                decoder.releaseOutputBuffer(outputIndex, false)
-            } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                // Format changed, no action needed
-            }
+        } finally {
+            fos.close()
         }
 
         decoder.stop()
         decoder.release()
         extractor.release()
 
-        // Write WAV file
-        val outputFile = File(outputDir, "whisper_decoded_${System.nanoTime()}.wav")
-        writeWav(outputFile, allPcm.copyOf(pcmSize))
-        Log.d(TAG, "Decoded to: ${outputFile.absolutePath} (${allPcm.size} samples)")
+        // WAV ヘッダのサイズ欄を確定値でパッチ（リトルエンディアン）
+        val dataSize = pcmSize * 2L
+        RandomAccessFile(outputFile, "rw").use { raf ->
+            raf.seek(4)
+            raf.writeInt(Integer.reverseBytes((36L + dataSize).toInt())) // RIFF size
+            raf.seek(40)
+            raf.writeInt(Integer.reverseBytes(dataSize.toInt()))         // data chunk size
+        }
+        Log.d(TAG, "Decoded to: ${outputFile.absolutePath} (${pcmSize} samples)")
         return outputFile.absolutePath
     }
 
@@ -199,40 +224,5 @@ object AudioDecoder {
             output[i] = (a + ((b - a) * frac).toInt()).toShort()
         }
         return output
-    }
-
-    private fun writeWav(file: File, pcmData: ShortArray) {
-        val dataSize = pcmData.size * 2L // 16-bit samples
-        val fileSize = 36L + dataSize
-
-        FileOutputStream(file).use { fos ->
-            val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-
-            // RIFF header
-            header.put("RIFF".toByteArray())
-            header.putInt((fileSize).toInt())
-            header.put("WAVE".toByteArray())
-
-            // fmt chunk
-            header.put("fmt ".toByteArray())
-            header.putInt(16) // chunk size
-            header.putShort(1) // PCM format
-            header.putShort(1) // mono
-            header.putInt(TARGET_SAMPLE_RATE)
-            header.putInt(TARGET_SAMPLE_RATE * 2) // byte rate (16-bit mono)
-            header.putShort(2) // block align
-            header.putShort(16) // bits per sample
-
-            // data chunk
-            header.put("data".toByteArray())
-            header.putInt(dataSize.toInt())
-
-            fos.write(header.array())
-
-            // PCM data
-            val pcmBytes = ByteBuffer.allocate(pcmData.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-            pcmBytes.asShortBuffer().put(pcmData)
-            fos.write(pcmBytes.array())
-        }
     }
 }

@@ -357,7 +357,13 @@ private fun TranscribingContent(
     val apiTotalEstimateMs = totalChunks * chunkTimeEstimateMs
     val overallEstimateMs = splitTimeMs + apiTotalEstimateMs
     val elapsedMs = elapsedSec * 1000L
-    val remainingMs = (overallEstimateMs - elapsedMs).coerceAtLeast(0L)
+    // v0.9.0: 残り時間は「分割の残り」+「未完了チャンク数 × 1チャンク予測」で計算する。
+    // 従来の「全体予測 - 経過時間」は経過を全体予測へ線形対応させるため、
+    // チャンク完了が速いと残り予測が過大になる問題があった。
+    // chunkTimeEstimateMs は ViewModel 側で実測値（ms/MB 移動平均）により逐次補正される。
+    val splitRemainingMs = (splitTimeMs - elapsedMs).coerceAtLeast(0L)
+    val apiRemainingMs = ((totalChunks - completedChunks) * chunkTimeEstimateMs).coerceAtLeast(0L)
+    val remainingMs = splitRemainingMs + apiRemainingMs
 
     Column(
         modifier = Modifier
@@ -448,7 +454,14 @@ private fun TranscribingContent(
             val splitAngle = (splitTimeMs.toFloat() / totalMs * 360f).coerceIn(1f, 359f)
             val chunkMsEach = if (totalChunks > 0) apiTotalEstimateMs / totalChunks else 0L
             val chunkAngleEach = if (totalChunks > 0) (chunkMsEach.toFloat() / totalMs * 360f).coerceAtLeast(1f) else 0f
-            val doneRatio = (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+            // v0.9.0: 進捗は「完了した作業」ベースで計算する。
+            // 従来の elapsedMs/totalMs（経過÷予測）は予測が実測より大きいと
+            // 完了時でも 100% に到達せず、状態（完了）と表示（円）が食い違う。
+            // 分割スライスは経過、チャンク部は完了チャンク数で進捗させる。
+            val splitFraction = (splitTimeMs.toFloat() / totalMs).coerceIn(0f, 1f)
+            val splitProgress = if (splitTimeMs > 0L) (elapsedMs.toFloat() / splitTimeMs).coerceIn(0f, 1f) else 1f
+            val chunkProgress = if (totalChunks > 0) (completedChunks.toFloat() / totalChunks).coerceIn(0f, 1f) else 0f
+            val doneRatio = (splitFraction * splitProgress + (1f - splitFraction) * chunkProgress).coerceIn(0f, 1f)
 
             // 現在のフェーズと進捗に基づく中央テキスト
             val currentChunk = completedChunks + 1
@@ -456,6 +469,7 @@ private fun TranscribingContent(
                 completedChunks < totalChunks &&
                 (elapsedMs - splitTimeMs) > (completedChunks + 1) * chunkTimeEstimateMs * 1.3f
             val centerText = when {
+                detailStatus.contains("デコード") -> "デコード"
                 detailStatus.contains("分割") || (splitTimeMs > 0L && elapsedMs <= splitTimeMs) -> "分割"
                 isDelayed -> "遅延"
                 completedChunks < totalChunks && totalChunks > 0 -> "Chunk$currentChunk"
@@ -642,7 +656,7 @@ private fun TranscribedContent(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // タイトル + 処理時間
+        // タイトル + 処理時間 + 文字数
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -653,9 +667,17 @@ private fun TranscribedContent(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            if (transcribeDurationMs > 0L) {
+            // v0.9.1: 文字数は編集に追従してリアルタイム更新される
+            Column(horizontalAlignment = Alignment.End) {
+                if (transcribeDurationMs > 0L) {
+                    Text(
+                        "処理時間: ${formatProcessingDuration(transcribeDurationMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Text(
-                    "処理時間: ${formatProcessingDuration(transcribeDurationMs)}",
+                    "文字数: ${String.format("%,d", transcript.length)}文字",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

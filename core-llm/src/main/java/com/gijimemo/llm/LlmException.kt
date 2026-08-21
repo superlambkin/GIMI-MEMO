@@ -10,6 +10,9 @@ sealed class LlmException(message: String, cause: Throwable? = null) : Exception
     /** 429 - 限流 */
     class RateLimited : LlmException("请求过于频繁，请稍后重试")
 
+    /** 5xx - 服务器错误（可重试） */
+    class ServerError(code: Int, body: String) : LlmException("服务器错误 HTTP $code: ${body.take(200)}")
+
     /** 网络错（可重试） */
     class NetworkError(cause: Throwable) : LlmException(
         "网络问题: ${cause::class.java.simpleName} ${cause.message ?: "(无消息)"}",

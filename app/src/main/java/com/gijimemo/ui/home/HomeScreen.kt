@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,6 +49,7 @@ fun HomeScreen(
     onNewRecording: () -> Unit,
     onSessionImported: (String) -> Unit,
     onTxtImported: (String) -> Unit,
+    onBatchImported: (List<String>) -> Unit,
     onSessionClick: (String) -> Unit,
     onSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -56,13 +58,38 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val pickAudioLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            viewModel.importAudioFile(uri) { id ->
+    // v0.9.1: 他アプリから共有された音声を受け取る。起動時・起動中の共有の両方に対応。
+    val sharedUri by viewModel.sharedAudio.collectAsStateWithLifecycle()
+    LaunchedEffect(sharedUri) {
+        if (sharedUri != null) {
+            viewModel.importAudioFile(sharedUri!!) { id ->
+                viewModel.consumeSharedAudio()
                 if (id != null) {
                     onSessionImported(id)
+                } else {
+                    scope.launch { snackbarHostState.showSnackbar("共有音声のインポートに失敗しました") }
+                }
+            }
+        }
+    }
+
+    // v0.9.0: 複数ファイル選択に対応。1件なら従来どおり確認画面へ、2件以上なら一括文字起こしへ。
+    val pickAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        if (uris.size == 1) {
+            viewModel.importAudioFile(uris[0]) { id ->
+                if (id != null) {
+                    onSessionImported(id)
+                } else {
+                    scope.launch { snackbarHostState.showSnackbar("インポートに失敗しました") }
+                }
+            }
+        } else {
+            viewModel.importAudioFiles(uris) { ids ->
+                if (ids.isNotEmpty()) {
+                    onBatchImported(ids)
                 } else {
                     scope.launch { snackbarHostState.showSnackbar("インポートに失敗しました") }
                 }

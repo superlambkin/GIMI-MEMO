@@ -503,10 +503,25 @@ class SessionDetailViewModel @Inject constructor(
 
     fun share(recipient: String) {
         val s = _state.value.session ?: return
+
+        // v0.9.1: 原文 TXT は未生成のため、共有時に作成してから添付する。
+        val docsDir = File(context.filesDir, "docs")
+        val originalFile = File(docsDir, "${s.id}_original.txt")
+        val datePartFileName = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault())
+            .format(java.util.Date(s.createdAt))
+        val txtFile = File(docsDir, "${datePartFileName}_原文.txt")
+        if (!txtFile.exists() && originalFile.exists()) {
+            txtGen.generate(originalFile.readText(), txtFile)
+        }
+        val raw = s.rawTranscript
+        if (!txtFile.exists() && raw != null) {
+            txtGen.generate(raw, txtFile)
+        }
+
         val files = listOfNotNull(
             _state.value.docxPath?.let { File(it) },
             _state.value.mdPath?.let { File(it) },
-            _state.value.txtPath?.let { File(it) }
+            if (txtFile.exists()) txtFile else null
         ).filter { it.exists() }
         if (files.isEmpty()) return
         val datePart = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault())

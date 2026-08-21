@@ -49,8 +49,9 @@ data class LlmProviderConfig(
             LlmProviderConfig(
                 name = "DeepSeek",
                 baseUrl = "https://api.deepseek.com/v1",
-                defaultModel = "deepseek-chat",
-                supportedModels = listOf("deepseek-chat", "deepseek-coder", "deepseek-reasoner"),
+                // v0.9.0: 要約用モデルを DeepSeek V4 Flash に変更（選択肢にも追加）
+                defaultModel = "deepseek-v4-flash",
+                supportedModels = listOf("deepseek-v4-flash", "deepseek-chat", "deepseek-coder", "deepseek-reasoner"),
                 supportsMultimodal = false,
                 apiKeyRef = "apikey_deepseek"
             ),

@@ -44,4 +44,84 @@ class MultipartAudioUploaderTest {
         assertThat(recorded.path).isEqualTo("/audio/transcriptions")
         assertThat(recorded.getHeader("Authorization")).isEqualTo("Bearer k")
     }
+
+    @Test
+    fun `uploadFile maps 429 to RateLimited`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429))
+        val file = File.createTempFile("test", ".m4a")
+        file.writeText("fake audio")
+        file.deleteOnExit()
+
+        val ex = runCatching {
+            uploader.uploadFile(
+                url = server.url("/audio/transcriptions").toString(),
+                apiKey = "k",
+                model = "whisper-1",
+                file = file
+            )
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(LlmException.RateLimited::class.java)
+    }
+
+    @Test
+    fun `uploadFile maps 5xx to ServerError (retryable)`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("internal error"))
+        val file = File.createTempFile("test", ".m4a")
+        file.writeText("fake audio")
+        file.deleteOnExit()
+
+        val ex = runCatching {
+            uploader.uploadFile(
+                url = server.url("/audio/transcriptions").toString(),
+                apiKey = "k",
+                model = "whisper-1",
+                file = file
+            )
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(LlmException.ServerError::class.java)
+    }
+
+    @Test
+    fun `uploadFile maps 413 to FileTooLarge`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(413))
+        val file = File.createTempFile("test", ".m4a")
+        file.writeText("fake audio")
+        file.deleteOnExit()
+
+        val ex = runCatching {
+            uploader.uploadFile(
+                url = server.url("/audio/transcriptions").toString(),
+                apiKey = "k",
+                model = "whisper-1",
+                file = file
+            )
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(LlmException.FileTooLarge::class.java)
+    }
+
+    @Test
+    fun `uploadFile maps connection failure to NetworkError (retryable)`() = runTest {
+        val dead = MockWebServer()
+        dead.start()
+        val url = dead.url("/audio/transcriptions").toString()
+        dead.shutdown() // 接続できない状態にして network 層の失敗を再現
+
+        val file = File.createTempFile("test", ".m4a")
+        file.writeText("fake audio")
+        file.deleteOnExit()
+
+        val ex = runCatching {
+            uploader.uploadFile(
+                url = url,
+                apiKey = "k",
+                model = "whisper-1",
+                file = file
+            )
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(LlmException.NetworkError::class.java)
+    }
 }

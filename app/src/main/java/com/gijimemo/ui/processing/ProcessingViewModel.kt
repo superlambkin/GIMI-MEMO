@@ -2,10 +2,6 @@ package com.gijimemo.ui.processing
 
 import android.content.ContentValues
 import android.content.Context
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
-import android.media.MediaMuxer
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
@@ -24,14 +20,12 @@ import com.gijimemo.document.TextGenerator
 import com.gijimemo.document.WordDocumentGenerator
 import com.gijimemo.llm.LlmClient
 import com.gijimemo.llm.LlmEvent
+import com.gijimemo.llm.LlmException
 import com.gijimemo.llm.LlmProvider
 import com.gijimemo.share.EmailShareService
-import com.gijimemo.whisper.AudioDecoder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,9 +33,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import javax.inject.Inject
 
 /** 処理フェーズ */
@@ -134,12 +125,12 @@ class ProcessingViewModel @Inject constructor(
     private var cachedCallMode: LlmCallMode = LlmCallMode.MULTIMODAL
     /** 文字起こしフェーズの開始時刻 (transcribe 専用時間計測用)。 */
     private var transcribeStartMs: Long = 0L
-    /** 文字起こし専用 OpenAI Whisper クライアント */
-    private var cachedWhisperClient: LlmClient? = null
     /** 文字起こし開始時刻 (start() で記録)。完了時に合計時間として表示する。 */
     private var processingStartMs: Long = 0L
     /** 設定から読み込んだチャンクサイズ (MB) */
     private var chunkSizeMb: Int = 10
+    /** クラウドWhisper文字起こしエンジン（分割・並列送信・リトライ。一括インポートと共有） */
+    private val cloudTranscriber = CloudWhisperTranscriber(settings, provider, context)
     /** 音声再生用 MediaPlayer */
     private var mediaPlayer: MediaPlayer? = null
     private var positionJob: kotlinx.coroutines.Job? = null
@@ -216,15 +207,9 @@ class ProcessingViewModel @Inject constructor(
                 cachedUseOnDevice = useOnDevice
                 cachedClient = initializeLlmClient(useOnDevice)
 
-                // 文字起こしは常に OpenAI Whisper API を使用するため、
-                // OpenAI クライアントを別途作成（設定のプロバイダとは独立）
-                val openAiConfig = settings.defaultProviders().firstOrNull { it.name == "OpenAI" }
-                val openAiKey = openAiConfig?.let { settings.getApiKey(it.apiKeyRef) }
-                cachedWhisperClient = if (openAiConfig != null && !openAiKey.isNullOrBlank()) {
-                    provider.createClient(openAiConfig, openAiKey, openAiConfig.defaultModel)
-                } else {
-                    null
-                }
+                // 文字起こしは常に OpenAI Whisper API を使用する（LLM プロバイダとは独立）。
+                // Whisper クライアントはキャッシュせず chunkAndTranscribe 内で最新の API Key から毎回生成する
+                // （v0.9.0: 再試行時に設定変更したキーが反映されない不具合の修正）。
 
                 // 分割サイズを設定から読み込む（1〜24MB）
                 chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 24)
@@ -860,196 +845,21 @@ A: （回答）
     }
 
     companion object {
-        /** WAV サンプルレート */
-        private const val SAMPLE_RATE = 16000
-
         /**
-         * 先頭 2 バイトが ADTS 同期ワード (0xFFFx) かを確認して raw AAC を検出。
-         * OpenAI Whisper API は raw AAC をサポートしていないため、事前に WAV
-         * 変換が必要。
+         * 一時的な障害（リトライ有効）かどうか。
+         * v0.9.0: 実装は [CloudWhisperTranscriber] に移動（一括インポートと共有）。
          */
-        private fun isRawAacFile(file: File): Boolean {
-            return try {
-                val bytes = file.readBytes()
-                bytes.size >= 2 &&
-                    (bytes[0].toInt() and 0xFF) == 0xFF &&
-                    (bytes[1].toInt() and 0xF0) == 0xF0
-            } catch (e: Exception) {
-                false
-            }
-        }
-    }
-
-    // ─── M4A 直接分割（MediaExtractor + MediaMuxer） ──────
-
-    /** AAC フレーム 1 個分のデータ */
-    private data class AudioFrame(
-        val data: ByteArray,
-        val presentationTimeUs: Long,
-        val flags: Int
-    )
-
-    /**
-     * M4A/AAC ファイルを [chunkSizeBytes] 以下のチャンクに分割する。
-     * MediaExtractor + MediaMuxer でデコードせずに直接分割するため、
-     * PCM デコード（216秒）が不要になり約 2〜5秒で完了する。
-     *
-     * @return 分割後のチャンクファイルのリスト
-     */
-    private fun splitM4aIntoChunks(source: File, outputDir: File, chunkSizeBytes: Long): List<File> {
-        val extractor = MediaExtractor()
-        try {
-            extractor.setDataSource(source.absolutePath)
-        } catch (e: Exception) {
-            Log.w(tag, "MediaExtractor cannot read $source, falling back: ${e.message}")
-            return emptyList()
-        }
-
-        val trackIndex = findAudioTrackM4a(extractor)
-        if (trackIndex < 0) {
-            Log.w(tag, "No audio track found, falling back")
-            extractor.release()
-            return emptyList()
-        }
-
-        val format = extractor.getTrackFormat(trackIndex)
-        extractor.selectTrack(trackIndex)
-
-        // 全 AAC フレームを読み込む
-        val frames = mutableListOf<AudioFrame>()
-        var totalInputBytes = 0L
-        while (true) {
-            val buf = ByteBuffer.allocate(8192)
-            val sampleSize = extractor.readSampleData(buf, 0)
-            if (sampleSize < 0) break
-
-            val data = ByteArray(sampleSize)
-            buf.rewind()
-            buf.get(data)
-            frames.add(AudioFrame(data, extractor.sampleTime, extractor.sampleFlags))
-            totalInputBytes += sampleSize
-
-            if (!extractor.advance()) break
-        }
-        extractor.release()
-
-        if (frames.isEmpty()) return emptyList()
-
-        // 1 チャンクで収まる場合
-        if (totalInputBytes <= chunkSizeBytes || frames.size <= 1) {
-            return emptyList() // 分割不要 → 元ファイルをそのまま使う
-        }
-
-        // フレーム数ベースで分割ポイントを計算
-        val framesPerChunk = maxOf(1, (frames.size.toLong() * chunkSizeBytes / totalInputBytes).toInt())
-        val chunks = mutableListOf<File>()
-        var idx = 0
-        var chunkIdx = 0
-
-        while (idx < frames.size) {
-            val end = minOf(idx + framesPerChunk, frames.size)
-            val chunkFile = File(outputDir, "chunk_${chunkIdx}_${System.nanoTime()}.m4a")
-            writeM4aChunk(chunkFile, format, frames, idx, end)
-            chunks.add(chunkFile)
-            idx = end
-            chunkIdx++
-        }
-
-        Log.d(tag, "splitM4aIntoChunks: ${source.length()}B → ${chunks.size} chunks")
-        return chunks
-    }
-
-    private fun findAudioTrackM4a(extractor: MediaExtractor): Int {
-        for (i in 0 until extractor.trackCount) {
-            val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
-            if (mime.startsWith("audio/")) return i
-        }
-        return -1
-    }
-
-    /** フレーム範囲を M4A ファイルとして書き出す。 */
-    private fun writeM4aChunk(
-        outputFile: File,
-        format: MediaFormat,
-        frames: List<AudioFrame>,
-        start: Int,
-        end: Int
-    ) {
-        val muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        try {
-            val trackId = muxer.addTrack(format)
-            muxer.start()
-            for (i in start until end) {
-                val f = frames[i]
-                val buf = ByteBuffer.wrap(f.data)
-                val info = MediaCodec.BufferInfo().apply {
-                    size = f.data.size
-                    flags = f.flags
-                    presentationTimeUs = f.presentationTimeUs
-                    offset = 0
-                }
-                muxer.writeSampleData(trackId, buf, info)
-            }
-        } finally {
-            muxer.stop()
-            muxer.release()
-        }
-    }
-
-    /**
-     * raw AAC (ADTS) を M4A コンテナにラップする。
-     * MediaExtractor + MediaMuxer でデコードせずにコンテナ変換するため、
-     * 従来の AAC→WAV デコード（実時間比 4.7倍）に比べてほぼ瞬時に完了する。
-     * @return ラップ後の M4A ファイル、失敗時は null
-     */
-    private fun wrapAacInM4a(source: File, outputDir: File): File? {
-        val extractor = MediaExtractor()
-        try {
-            extractor.setDataSource(source.absolutePath)
-        } catch (e: Exception) {
-            Log.w(tag, "wrapAacInM4a: cannot read $source: ${e.message}")
-            return null
-        }
-        val trackIndex = findAudioTrackM4a(extractor)
-        if (trackIndex < 0) { extractor.release(); return null }
-        val format = extractor.getTrackFormat(trackIndex)
-        extractor.selectTrack(trackIndex)
-
-        val frames = mutableListOf<AudioFrame>()
-        while (true) {
-            val buf = ByteBuffer.allocate(8192)
-            val sampleSize = extractor.readSampleData(buf, 0)
-            if (sampleSize < 0) break
-            val data = ByteArray(sampleSize)
-            buf.rewind(); buf.get(data)
-            frames.add(AudioFrame(data, extractor.sampleTime, extractor.sampleFlags))
-            if (!extractor.advance()) break
-        }
-        extractor.release()
-        if (frames.isEmpty()) return null
-
-        val outFile = File(outputDir, "m4a_wrapped_${System.nanoTime()}.m4a")
-        writeM4aChunk(outFile, format, frames, 0, frames.size)
-        Log.d(tag, "wrapAacInM4a: ${source.length()}B → ${outFile.absolutePath} (${frames.size} frames)")
-        return outFile
+        fun isRetryable(e: Throwable): Boolean = CloudWhisperTranscriber.isRetryable(e)
     }
 
     // ─── 分割文字起こし（M4A 直接分割版） ──────────────────
 
     /**
-     * M4A 直接分割 → Whisper API:
-     * 1. MediaExtractor で全 AAC フレームを読込（デコード不要、約 2〜5秒）
-     * 2. フレームを [chunkSizeMb] 単位で MediaMuxer 出力
-     * 3. 各チャンクを Whisper API (/v1/audio/transcriptions) で文字起こし
-     * 4. 全チャンクの結果を結合 → TRANSCRIBED
+     * M4A 直接分割 → Whisper API によるクラウド文字起こし。
+     * v0.9.0: 分割・並列送信・リトライの実処理は [CloudWhisperTranscriber] に委譲し、
+     * ここでは初期予測・進捗表示・処理時間の記録のみ行う（一括インポートとロジックを共有）。
      */
     private suspend fun chunkAndTranscribe(source: File) {
-        val whisperClient = cachedWhisperClient ?: run {
-            handleError(IllegalStateException("OpenAI Whisper クライアントが初期化できません。API Key を設定してください。"))
-            return
-        }
-
-        val chunkSizeBytes = (chunkSizeMb * 1024 * 1024L).coerceAtLeast(1024 * 1024)
         _state.value = ProcessingState(
             phase = ProcessingPhase.TRANSCRIBING,
             useOnDevice = false,
@@ -1059,15 +869,17 @@ A: （回答）
         )
 
         // 初期予測（ファイルサイズベース）：即座に円グラフ表示するため
+        val chunkSizeBytes = (chunkSizeMb * 1024 * 1024L).coerceAtLeast(1024 * 1024)
         val fileMb = source.length() / (1024L * 1024L)
         val totalChunksEst = maxOf(1, (source.length() + chunkSizeBytes - 1) / chunkSizeBytes).toInt()
         // 履歴から時間予測係数を取得（秒/MB）
         val perfFactorSecPerMb = settings.transcribePerfFactor.first().takeIf { it > 0f } ?: 5.0f
-        // 分割時間予測: ファイル形式により係数を変更（MP3: 1.5s/MB, M4A/AAC: 0.2s/MB）
+        // 分割時間予測: ファイル形式により係数を変更（実測値ベース v0.9.0）
+        //   MP3: 約 0.6s/MB、M4A/AAC: MediaMuxer 直接分割で約 0.1s/MB
         val splitFactor = when {
-            source.name.lowercase().endsWith(".mp3") -> 1500L
-            source.name.lowercase().endsWith(".m4a") || source.name.lowercase().endsWith(".aac") -> 200L
-            else -> 800L
+            source.name.lowercase().endsWith(".mp3") -> 600L
+            source.name.lowercase().endsWith(".m4a") || source.name.lowercase().endsWith(".aac") -> 100L
+            else -> 500L
         }
         val estimatedSplitMs = (fileMb * splitFactor).coerceIn(2000L, 120000L)
         val estimatedChunkApiMs = (chunkSizeMb.toFloat() * perfFactorSecPerMb * 1000f)
@@ -1080,121 +892,19 @@ A: （回答）
 
         // 文字起こし専用時間計測開始
         transcribeStartMs = System.currentTimeMillis()
-
-        val cacheDir = File(context.cacheDir, "chunk_cache").apply { mkdirs() }
         val t0 = System.currentTimeMillis()
 
         try {
-            // 単一ファイルで収まる → 直接送信
-            if (source.length() <= chunkSizeBytes) {
-                Log.d(tag, "Single chunk, sending original file to Whisper API")
-
-                // raw AAC (ADTS) → M4A コンテナにラップ（デコード不要、ほぼ瞬時）
-                val fileToSend = if (isRawAacFile(source)) {
-                    Log.d(tag, "Raw AAC detected, wrapping in M4A container")
-                    _state.value = _state.value.copy(detailStatus = "AAC→M4A 変換中...")
-                    val m4aFile = withContext(Dispatchers.IO) {
-                        wrapAacInM4a(source, cacheDir)
-                    }
-                    m4aFile ?: source
-                } else {
-                    source
-                }
-
-                _state.value = _state.value.copy(detailStatus = "Whisper API 送信中...")
-                val tApi = System.currentTimeMillis()
-                val transcript = whisperClient.transcribeOnly(fileToSend)
-                Log.d(tag, "[TIMING] Whisper API: ${System.currentTimeMillis() - tApi}ms")
-                _state.value = ProcessingState(
-                    phase = ProcessingPhase.TRANSCRIBED,
-                    rawTranscript = transcript,
-                    transcribeDurationMs = System.currentTimeMillis() - transcribeStartMs,
-                    activeProvider = "OpenAI (Whisper)",
-                    activeModel = "whisper-1"
-                )
-                Log.d(tag, "[TIMING] TOTAL: ${System.currentTimeMillis() - t0}ms")
-                return
-            }
-
-            // M4A 直接分割（MediaExtractor + MediaMuxer）— デコード不要で高速
-            val tSplit = System.currentTimeMillis()
-            _state.value = _state.value.copy(detailStatus = "M4A 分割中...")
-
-            val m4aChunks = withContext(Dispatchers.IO) {
-                splitM4aIntoChunks(source, cacheDir, chunkSizeBytes)
-            }
-            val chunks = m4aChunks.toMutableList()
-
-            if (chunks.isEmpty()) {
-                // M4A 分割失敗 → デコード方式にフォールバック
-                Log.d(tag, "M4A split failed, falling back to decode-based splitting")
-                _state.value = _state.value.copy(detailStatus = "AAC→WAV デコード中...")
-                val tDecode = System.currentTimeMillis()
-                val wavPath = withContext(Dispatchers.IO) {
-                    AudioDecoder.decodeToWav(source.absolutePath, cacheDir)
-                }
-                val wavFile = File(wavPath)
-                Log.d(tag, "[TIMING] Decode fallback: ${System.currentTimeMillis() - tDecode}ms, WAV=${wavFile.length() / 1024 / 1024}MB")
-
-                _state.value = _state.value.copy(detailStatus = "PCM 分割中...")
-                val allPcm = withContext(Dispatchers.IO) { readWavPcm(wavFile) }
-                wavFile.delete()
-                val chunkSamples = (chunkSizeMb * 1024 * 1024 / 2).coerceAtLeast(16000)
-                val totalPcmChunks = (allPcm.size + chunkSamples - 1) / chunkSamples
-
-                val pcmChunks = mutableListOf<File>()
-                for (i in 0 until totalPcmChunks) {
-                    val start = i * chunkSamples
-                    val end = minOf(start + chunkSamples, allPcm.size)
-                    val cf = File(cacheDir, "pcm_chunk_${i}_${System.nanoTime()}.wav")
-                    withContext(Dispatchers.IO) { writeWavFile(cf, allPcm.copyOfRange(start, end)) }
-                    pcmChunks.add(cf)
-                }
-                chunks.addAll(pcmChunks)
-            } else {
-                val actualSplitMs = System.currentTimeMillis() - tSplit
-                Log.d(tag, "[TIMING] M4A split: ${actualSplitMs}ms, ${chunks.size} chunks")
-                // 実測分割時間 + 初期予測の1チャンクあたりAPI時間を維持
+            val result = cloudTranscriber.transcribeFile(source, chunkSizeMb) { p ->
+                // 進行状況（分割・チャンク完了・予測補正）を State に反映
                 _state.value = _state.value.copy(
-                    totalChunks = chunks.size,
-                    splitTimeMs = actualSplitMs
-                    // chunkTimeEstimateMs は初期予測値(履歴ベース)をそのまま維持
+                    detailStatus = p.detailStatus,
+                    totalChunks = p.totalChunks,
+                    completedChunks = p.completedChunks,
+                    splitTimeMs = p.splitTimeMs,
+                    chunkTimeEstimateMs = p.chunkTimeEstimateMs
                 )
-            }
-
-            // 3. 全チャンクを並列 Whisper API で文字起こし（最大 3 並行）
-            val fullTranscript = StringBuilder()
-            val totalChunks = chunks.size
-            val semaphore = java.util.concurrent.Semaphore(3)
-            val results = coroutineScope {
-                chunks.mapIndexed { i, chunkFile ->
-                    async {
-                        semaphore.acquire()
-                        try {
-                            val transcript = whisperClient.transcribeOnly(chunkFile)
-                            i to transcript.trim()
-                        } catch (e: Exception) {
-                            Log.e(tag, "Chunk ${i + 1}/$totalChunks failed: ${e.message}")
-                            i to ""
-                        } finally {
-                            chunkFile.delete()
-                            semaphore.release()
-                            _state.value = _state.value.copy(completedChunks = _state.value.completedChunks + 1)
-                        }
-                    }
-                }.map { it.await() }.sortedBy { (i, _) -> i }
-            }
-            for ((_, text) in results) {
-                if (text.isNotEmpty()) {
-                    if (fullTranscript.isNotEmpty()) fullTranscript.append(" ")
-                    fullTranscript.append(text)
-                }
-            }
-
-            // キャッシュディレクトリをクリーンアップ
-            cacheDir.listFiles()?.forEach { it.delete() }
-
-            val result = fullTranscript.toString().trim()
+            }.trim()
             Log.d(tag, "[TIMING] TOTAL: ${System.currentTimeMillis() - t0}ms, ${result.length} chars")
 
             // パフォーマンス履歴を更新（秒/MB）
@@ -1214,79 +924,6 @@ A: （回答）
             )
         } catch (e: Exception) {
             handleError(e)
-        }
-    }
-
-    // ─── WAV 読み書きヘルパー ─────────────────────────────
-
-    /**
-     * WAV ファイルから 16bit PCM データを ShortArray として読み込む。
-     * 16kHz mono 16-bit PCM を想定。
-     */
-    private fun readWavPcm(wavFile: File): ShortArray {
-        val bytes = wavFile.readBytes()
-        // "data" チャンクを探す
-        val dataOffset = findDataChunk(bytes)
-        val dataSize = bytes.size - dataOffset
-        val alignedSize = dataSize - (dataSize % 2)
-        val buf = ByteBuffer.wrap(bytes, dataOffset, alignedSize)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-        val result = ShortArray(buf.remaining())
-        buf.get(result)
-        return result
-    }
-
-    /** WAV ファイルの "data" チャンク開始位置（PCM データのバイトオフセット）を探す。 */
-    private fun findDataChunk(bytes: ByteArray): Int {
-        var offset = 44
-        var guard = 0
-        while (offset + 8 < bytes.size && guard++ < 16) {
-            val id = String(bytes, offset, 4)
-            if (id == "data") return offset + 8
-            val size = leIntAt(bytes, offset + 4)
-            if (size <= 0 || size > bytes.size) break
-            offset += 8 + size
-        }
-        return 44
-    }
-
-    /** リトルエンディアン 32-bit int を読み取る。 */
-    private fun leIntAt(bytes: ByteArray, offset: Int): Int {
-        return (bytes[offset].toInt() and 0xFF) or
-                ((bytes[offset + 1].toInt() and 0xFF) shl 8) or
-                ((bytes[offset + 2].toInt() and 0xFF) shl 16) or
-                ((bytes[offset + 3].toInt() and 0xFF) shl 24)
-    }
-
-    /**
-     * PCM ShortArray を 16kHz mono 16-bit WAV ファイルとして書き出す。
-     */
-    private fun writeWavFile(file: File, pcmData: ShortArray) {
-        val dataSize = pcmData.size * 2L
-        val fileSize = 36L + dataSize
-
-        FileOutputStream(file).use { fos ->
-            val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-            header.put("RIFF".toByteArray())
-            header.putInt(fileSize.toInt())
-            header.put("WAVE".toByteArray())
-            header.put("fmt ".toByteArray())
-            header.putInt(16)          // chunk size
-            header.putShort(1)         // PCM
-            header.putShort(1)         // mono
-            header.putInt(SAMPLE_RATE)
-            header.putInt(SAMPLE_RATE * 2) // byte rate
-            header.putShort(2)         // block align
-            header.putShort(16)        // bits per sample
-            header.put("data".toByteArray())
-            header.putInt(dataSize.toInt())
-            fos.write(header.array())
-
-            val pcmBytes = ByteBuffer.allocate(pcmData.size * 2)
-                .order(ByteOrder.LITTLE_ENDIAN)
-            pcmBytes.asShortBuffer().put(pcmData)
-            fos.write(pcmBytes.array())
         }
     }
 }

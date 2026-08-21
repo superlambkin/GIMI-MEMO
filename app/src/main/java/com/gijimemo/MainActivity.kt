@@ -1,5 +1,6 @@
 package com.gijimemo
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,6 +20,7 @@ import com.gijimemo.ui.startup.StartupSplash
 import com.gijimemo.ui.startup.StartupState
 import com.gijimemo.ui.startup.StartupViewModel
 import com.gijimemo.data.repository.SettingsRepository
+import com.gijimemo.ui.home.SharedAudioStore
 import com.gijimemo.ui.theme.GijiMemoTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -27,12 +29,14 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settings: SettingsRepository
+    @Inject lateinit var sharedAudioStore: SharedAudioStore
 
     private val startupViewModel: StartupViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleSharedAudioIntent(intent)
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = 0)
             // v0.7.5: Activity 夜間モードをテーマ設定と同期（MIUI 強制ダークを防止）
@@ -61,6 +65,27 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /** アプリ起動中に別アプリから再度共有された場合も受け取る。 */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleSharedAudioIntent(intent)
+    }
+
+    /** ACTION_SEND で共有された音声 URI を SharedAudioStore へ渡す。 */
+    private fun handleSharedAudioIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        if (!intent.type.orEmpty().startsWith("audio/")) return
+        val uri = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        if (uri != null) {
+            sharedAudioStore.offer(uri)
         }
     }
 }

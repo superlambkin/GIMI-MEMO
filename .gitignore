@@ -1,6 +1,7 @@
 # .gitignore
 *.iml
 .gradle/
+.gradle-home/
 local.properties
 .idea/
 .DS_Store

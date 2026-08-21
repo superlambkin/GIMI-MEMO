@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.gijimemo.ui.home.HomeScreen
+import com.gijimemo.ui.import_review.BatchImportScreen
 import com.gijimemo.ui.import_review.ImportReviewScreen
 import com.gijimemo.ui.processing.ProcessingScreen
 import com.gijimemo.ui.preview.PreviewScreen
@@ -20,6 +21,7 @@ object Routes {
     // lang: "ja" | "zh" — 文字起こし時の言語ヒント。省略時はサーバー側の自動判定。
     const val PROCESSING = "processing/{sessionId}?lang={lang}"
     const val IMPORT_REVIEW = "import_review/{sessionId}"
+    const val BATCH_IMPORT = "batch_import/{ids}"
     const val PREVIEW = "preview/{sessionId}"
     const val SESSION = "session/{sessionId}"
     const val SETTINGS = "settings"
@@ -28,6 +30,7 @@ object Routes {
     fun processing(sessionId: String, lang: String = "") =
         if (lang.isBlank()) "processing/$sessionId" else "processing/$sessionId?lang=$lang"
     fun importReview(sessionId: String) = "import_review/$sessionId"
+    fun batchImport(ids: List<String>) = "batch_import/${ids.joinToString(",")}"
     fun preview(sessionId: String) = "preview/$sessionId"
     fun session(sessionId: String) = "session/$sessionId"
 }
@@ -40,8 +43,24 @@ fun GijiMemoNavHost(navController: NavHostController = rememberNavController()) 
                 onNewRecording = { navController.navigate(Routes.RECORDING) },
                 onSessionImported = { id -> navController.navigate(Routes.importReview(id)) },
                 onTxtImported = { id -> navController.navigate(Routes.processing(id)) },
+                onBatchImported = { ids -> navController.navigate(Routes.batchImport(ids)) },
                 onSessionClick = { id -> navController.navigate(Routes.session(id)) },
                 onSettings = { navController.navigate(Routes.SETTINGS) }
+            )
+        }
+        composable(
+            route = Routes.BATCH_IMPORT,
+            arguments = listOf(
+                androidx.navigation.navArgument("ids") { type = androidx.navigation.NavType.StringType }
+            )
+        ) {
+            BatchImportScreen(
+                onComplete = { id ->
+                    navController.navigate(Routes.processing(id)) {
+                        popUpTo(Routes.HOME)
+                    }
+                },
+                onCancel = { navController.popBackStack() }
             )
         }
         composable(Routes.RECORDING) {

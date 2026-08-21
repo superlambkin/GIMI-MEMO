@@ -38,10 +38,17 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val repo: SessionRepository,
     private val metaStore: ImportedMetaStore,
+    private val sharedAudioStore: SharedAudioStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     val sessions: StateFlow<List<Session>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** v0.9.1: 他アプリから共有された音声 URI（未共有なら null）。 */
+    val sharedAudio: StateFlow<Uri?> = sharedAudioStore.pending
+
+    /** 共有された音声 URI を取得してクリアする。 */
+    fun consumeSharedAudio(): Uri? = sharedAudioStore.consume()
 
     /** v0.7.2: Singleton ImportedMetaStore への薄いファサード。
      *  HomeViewModel の ViewModel インスタンスが画面ごとに違うため、
@@ -79,87 +86,125 @@ class HomeViewModel @Inject constructor(
      */
     fun importAudioFile(uri: Uri, onImported: (sessionId: String?) -> Unit) {
         viewModelScope.launch {
-            try {
-                val id = UUID.randomUUID().toString()
-                // URI の MIME タイプから適切な拡張子を決定（実態と合わない .mp3 固定を修正）
-                val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
-                val ext = when {
-                    mimeType.contains("m4a") || mimeType.contains("mp4") || mimeType.contains("aac") -> "m4a"
-                    mimeType.contains("mpeg") || mimeType.contains("mp3") -> "mp3"
-                    mimeType.contains("wav") -> "wav"
-                    mimeType.contains("ogg") -> "ogg"
-                    mimeType.contains("flac") -> "flac"
-                    mimeType.contains("webm") -> "webm"
-                    else -> "mp3"
-                }
-                val outFile = File(context.filesDir, "audio/$id.$ext")
-                outFile.parentFile?.mkdirs()
-                // 元ファイルの表示名 (OpenableColumns.DISPLAY_NAME) を取得
-                val originalDisplayName = withContext(Dispatchers.IO) {
-                    context.contentResolver.query(
-                        uri,
-                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
-                        null, null, null
-                    )?.use { c ->
-                        if (c.moveToFirst()) c.getString(0) else null
-                    }
-                } ?: uri.lastPathSegment ?: outFile.name
-                // 元ファイルの最終更新日時 (可能なら取得)
-                // OpenableColumns.LAST_MODIFIED は API 29+ のため、文字列定数で参照し
-                // pre-Q 端末では null になっても問題ない (importedAtMs で代用表示する)。
-                val originalLastModifiedMs = withContext(Dispatchers.IO) {
-                    runCatching {
-                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                            if (c.moveToFirst()) {
-                                val idx = c.getColumnIndex("last_modified")
-                                if (idx >= 0) c.getLong(idx) else null
-                            } else null
-                        }
-                    }.getOrNull()
-                } ?: 0L
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        outFile.outputStream().use { output -> input.copyTo(output) }
-                    } ?: error("无法打开输入流")
-                }
-                // MediaMetadataRetriever で duration / sampleRate / bitRate を取得
-                val meta = withContext(Dispatchers.IO) {
-                    MediaMetadataRetriever().runCatching {
-                        setDataSource(outFile.absolutePath)
-                        val dur = extractMetadata(METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                        val sr = extractMetadata(METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
-                        val br = extractMetadata(METADATA_KEY_BITRATE)?.toIntOrNull() ?: 0
-                        Triple(dur, sr, br)
-                    }.getOrNull() ?: Triple(0L, 0, 0)
-                }
-                val (durationMs, sampleRate, bitRate) = meta
-                val title = "インポート ${SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date())}"
-                val session = Session(
-                    id = id,
-                    title = title,
-                    createdAt = System.currentTimeMillis(),
-                    durationMs = durationMs,
-                    audioFilePath = outFile.absolutePath,
-                    audioSizeBytes = outFile.length(),
-                    status = SessionStatus.STOPPED
-                )
-                repo.save(session)
-                // v0.7.2: ImportReviewScreen で表示するメタ情報を Singleton ストアに流す
-                metaStore.set(ImportedAudioMeta(
-                    fileName = originalDisplayName,
-                    fileLocation = outFile.absolutePath,
-                    sampleRate = sampleRate,
-                    bitRate = bitRate,
-                    durationMs = durationMs,
-                    fileSizeBytes = outFile.length(),
-                    importedAtMs = System.currentTimeMillis(),
-                    originalLastModifiedMs = originalLastModifiedMs
-                ))
-                onImported(id)
-            } catch (e: Exception) {
-                Log.e("HomeViewModel", "importAudioFile failed", e)
+            val result = importAudioFileInternal(uri)
+            if (result != null) {
+                metaStore.set(result.meta)
+                onImported(result.session.id)
+            } else {
                 onImported(null)
             }
+        }
+    }
+
+    /**
+     * v0.9.0: 複数音声ファイルの一括インポート（一括文字起こし用）。
+     * 各ファイルをインポートし、元ファイルの最終更新日時（取得不能時はインポート時刻）
+     * で時系列ソートしたセッション ID リストを [onImported] で返す。
+     * 同時刻はファイル名昇順 → 選択順で安定化する。
+     */
+    fun importAudioFiles(uris: List<Uri>, onImported: (orderedIds: List<String>) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val imported = uris.mapNotNull { uri ->
+                    importAudioFileInternal(uri)?.let { r -> Triple(r.session, r.meta, uri) }
+                }
+                // 時系列ソート: 更新日時 昇順 → ファイル名 昇順（大文字小文字無視）→ 選択順
+                val ordered = imported.sortedWith(
+                    compareBy<Triple<Session, ImportedAudioMeta, Uri>> {
+                        if (it.second.originalLastModifiedMs > 0L) it.second.originalLastModifiedMs
+                        else it.second.importedAtMs
+                    }.thenBy { it.second.fileName.lowercase() }
+                )
+                // 一括画面・ホーム一覧でファイル名を識別できるよう title を元ファイル名にする
+                ordered.forEach { (s, meta, _) ->
+                    repo.save(s.copy(title = meta.fileName))
+                }
+                onImported(ordered.map { it.first.id })
+            } catch (e: Exception) {
+                Log.e("HomeViewModel", "importAudioFiles failed", e)
+                onImported(emptyList())
+            }
+        }
+    }
+
+    /** インポート処理の内部実装。成功時は Session とメタ情報を返す。 */
+    private suspend fun importAudioFileInternal(uri: Uri): ImportedResult? {
+        return try {
+            val id = UUID.randomUUID().toString()
+            // URI の MIME タイプから適切な拡張子を決定（実態と合わない .mp3 固定を修正）
+            val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
+            val ext = when {
+                mimeType.contains("m4a") || mimeType.contains("mp4") || mimeType.contains("aac") -> "m4a"
+                mimeType.contains("mpeg") || mimeType.contains("mp3") -> "mp3"
+                mimeType.contains("wav") -> "wav"
+                mimeType.contains("ogg") -> "ogg"
+                mimeType.contains("flac") -> "flac"
+                mimeType.contains("webm") -> "webm"
+                else -> "mp3"
+            }
+            val outFile = File(context.filesDir, "audio/$id.$ext")
+            outFile.parentFile?.mkdirs()
+            // 元ファイルの表示名 (OpenableColumns.DISPLAY_NAME) を取得
+            val originalDisplayName = withContext(Dispatchers.IO) {
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                    null, null, null
+                )?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                }
+            } ?: uri.lastPathSegment ?: outFile.name
+            // 元ファイルの最終更新日時 (可能なら取得)
+            val originalLastModifiedMs = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idx = c.getColumnIndex("last_modified")
+                            if (idx >= 0) c.getLong(idx) else null
+                        } else null
+                    }
+                }.getOrNull()
+            } ?: 0L
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    outFile.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("无法打开输入流")
+            }
+            // MediaMetadataRetriever で duration / sampleRate / bitRate を取得
+            val meta = withContext(Dispatchers.IO) {
+                MediaMetadataRetriever().runCatching {
+                    setDataSource(outFile.absolutePath)
+                    val dur = extractMetadata(METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    val sr = extractMetadata(METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
+                    val br = extractMetadata(METADATA_KEY_BITRATE)?.toIntOrNull() ?: 0
+                    Triple(dur, sr, br)
+                }.getOrNull() ?: Triple(0L, 0, 0)
+            }
+            val (durationMs, sampleRate, bitRate) = meta
+            val title = "インポート ${SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date())}"
+            val session = Session(
+                id = id,
+                title = title,
+                createdAt = System.currentTimeMillis(),
+                durationMs = durationMs,
+                audioFilePath = outFile.absolutePath,
+                audioSizeBytes = outFile.length(),
+                status = SessionStatus.STOPPED
+            )
+            repo.save(session)
+            ImportedResult(session, ImportedAudioMeta(
+                fileName = originalDisplayName,
+                fileLocation = outFile.absolutePath,
+                sampleRate = sampleRate,
+                bitRate = bitRate,
+                durationMs = durationMs,
+                fileSizeBytes = outFile.length(),
+                importedAtMs = System.currentTimeMillis(),
+                originalLastModifiedMs = originalLastModifiedMs
+            ))
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "importAudioFile failed", e)
+            null
         }
     }
 
@@ -245,4 +290,10 @@ data class ImportedAudioMeta(
     val fileSizeBytes: Long,
     val importedAtMs: Long,
     val originalLastModifiedMs: Long
+)
+
+/** v0.9.0: インポート内部処理の戻り値。単一インポートはメタ情報を、一括インポートはソート用に使用する。 */
+data class ImportedResult(
+    val session: Session,
+    val meta: ImportedAudioMeta
 )
