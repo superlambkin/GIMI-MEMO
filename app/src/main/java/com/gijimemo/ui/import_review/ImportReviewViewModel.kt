@@ -8,6 +8,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.Session
+import com.gijimemo.data.prefs.SettingsDataStore
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.ui.recording.PlaybackState
@@ -59,15 +60,15 @@ class ImportReviewViewModel @Inject constructor(
     }
 
     /**
-     * 設定画面 > 呼び出しモード > オンデバイスWhisper と同期する StateFlow。
-     * 録音確認画面にラジオボタンとして露出させる。
+     * 設定画面 > 呼び出しモード > 文字起こし方式 と同期する StateFlow。
+     * cloud / on_device / network の 3 値。録音確認画面にラジオボタンとして露出させる。
      */
-    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val asrMode: StateFlow<String> = settings.asrMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsDataStore.ASR_MODE_CLOUD)
 
     /** 設定画面に通知するため SettingsRepository 経由で永続化する。 */
-    fun setUseOnDeviceAsr(enabled: Boolean) {
-        viewModelScope.launch { settings.setUseOnDeviceAsr(enabled) }
+    fun setAsrMode(mode: String) {
+        viewModelScope.launch { settings.setAsrMode(mode) }
     }
 
     override fun onCleared() {

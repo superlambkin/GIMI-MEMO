@@ -1,6 +1,7 @@
 package com.gijimemo.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -31,6 +32,8 @@ class SettingsDataStore(private val context: Context) {
     private val keyCustom1Template = stringPreferencesKey("template_custom1")
     private val keyCustom2Template = stringPreferencesKey("template_custom2")
     private val keyUseOnDeviceAsr = booleanPreferencesKey("use_on_device_asr")
+    private val keyAsrMode = stringPreferencesKey("asr_mode")
+    private val keyNetworkWhisperUrl = stringPreferencesKey("network_whisper_url")
     private val keyWhisperModel = stringPreferencesKey("whisper_model")
     private val keyCloudAsrProvider = stringPreferencesKey("cloud_asr_provider")
     private val keyAutoProvider = booleanPreferencesKey("auto_provider")
@@ -206,15 +209,38 @@ Q: （質問） A: （回答）
         it[key] = value
     }
 
-    // ─── オンデバイスWhisper ─────────────────────────────────
+    // ─── 文字起こし方式（ASR） ──────────────────────────────
+    // v0.9.1: 従来の useOnDeviceAsr（Boolean）を 3 値化した。
+    //   "cloud"      → クラウド（OpenAI 等）
+    //   "on_device"  → ローカル（スマートフォン / whisper.cpp）
+    //   "network"    → ローカル（ローカルPC / ネットワーク Whisper サーバ）
 
-    val useOnDeviceAsr: Flow<Boolean> = context.dataStore.data.map { it[keyUseOnDeviceAsr] ?: false }
+    /** 保存値から ASR 方式を読み取る。旧 `use_on_device_asr` フラグは on_device として移行。 */
+    private fun readAsrMode(prefs: Preferences): String =
+        prefs[keyAsrMode] ?: if (prefs[keyUseOnDeviceAsr] == true) ASR_MODE_ON_DEVICE else ASR_MODE_CLOUD
+
+    val asrMode: Flow<String> = context.dataStore.data.map { readAsrMode(it) }
+
+    /** 後方互換: ASR 方式がオンデバイスかどうか（旧フラグ相当） */
+    val useOnDeviceAsr: Flow<Boolean> = context.dataStore.data.map { readAsrMode(it) == ASR_MODE_ON_DEVICE }
+
+    val networkWhisperUrl: Flow<String> = context.dataStore.data.map {
+        it[keyNetworkWhisperUrl] ?: DEFAULT_NETWORK_WHISPER_URL
+    }
 
     val whisperModel: Flow<String> = context.dataStore.data.map { it[keyWhisperModel] ?: "ggml-base-q5_1.bin" }
 
     val cloudAsrProvider: Flow<String> = context.dataStore.data.map { it[keyCloudAsrProvider] ?: "openai" }
 
-    suspend fun setUseOnDeviceAsr(v: Boolean) = context.dataStore.edit { it[keyUseOnDeviceAsr] = v }
+    suspend fun setAsrMode(v: String) = context.dataStore.edit {
+        it[keyAsrMode] = v
+        // 旧フラグも同期（ダウングレードや旧コード経由の読取りでも整合を保つ）
+        it[keyUseOnDeviceAsr] = (v == ASR_MODE_ON_DEVICE)
+    }
+
+    suspend fun setUseOnDeviceAsr(v: Boolean) = setAsrMode(if (v) ASR_MODE_ON_DEVICE else ASR_MODE_CLOUD)
+
+    suspend fun setNetworkWhisperUrl(v: String) = context.dataStore.edit { it[keyNetworkWhisperUrl] = v }
 
     suspend fun setWhisperModel(v: String) = context.dataStore.edit { it[keyWhisperModel] = v }
 
@@ -273,6 +299,12 @@ Q: （質問） A: （回答）
     suspend fun setEnableVoiceActivityDetection(v: Boolean) = context.dataStore.edit { it[keyEnableVad] = v }
 
     companion object {
+        const val ASR_MODE_CLOUD = "cloud"
+        const val ASR_MODE_ON_DEVICE = "on_device"
+        const val ASR_MODE_NETWORK = "network"
+        /** ローカルPC のネットワーク Whisper サーバ既定 URL */
+        const val DEFAULT_NETWORK_WHISPER_URL = "http://192.168.0.88:9000/asr"
+
         const val DEFAULT_PROMPT_TEMPLATE = """以下の録音を文字起こしし、入力と同じ言語で Markdown 形式の議事録を出力してください。
 
 # 検出言語

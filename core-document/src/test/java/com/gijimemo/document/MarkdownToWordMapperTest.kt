@@ -78,4 +78,30 @@ class MarkdownToWordMapperTest {
         val text = document.paragraphs[0].text
         assertThat(text).contains("Quoted text")
     }
+
+    // ─── v0.9.1: Word 文書に ** が残らない ──────────────
+
+    @Test
+    fun `removes bold markers from paragraph`() {
+        val document = XWPFDocument()
+        MarkdownToWordMapper.renderInto(document, "これは **重要** です")
+        assertThat(document.paragraphs[0].text).isEqualTo("これは 重要 です")
+        assertThat(document.paragraphs[0].text).doesNotContain("*")
+    }
+
+    @Test
+    fun `removes unmatched bold markers`() {
+        val document = XWPFDocument()
+        MarkdownToWordMapper.renderInto(document, "中途半端な **マーカー")
+        assertThat(document.paragraphs[0].text).doesNotContain("*")
+    }
+
+    @Test
+    fun `removes bold markers from heading and bullet`() {
+        val document = XWPFDocument()
+        MarkdownToWordMapper.renderInto(document, "# **見出し**\n- **箇条書き**")
+        assertThat(document.paragraphs[0].text).isEqualTo("見出し")
+        assertThat(document.paragraphs[1].text).isEqualTo("• 箇条書き")
+        document.paragraphs.forEach { assertThat(it.text).doesNotContain("*") }
+    }
 }

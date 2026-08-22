@@ -16,6 +16,7 @@ import com.gijimemo.audio.AudioRecorder
 import com.gijimemo.audio.RecordingState
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.data.prefs.SettingsDataStore
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.OnDeviceWhisperClient
@@ -105,15 +106,16 @@ class RecordingViewModel @Inject constructor(
     }
 
     /**
-     * 設定画面の「オンデバイスWhisper」と同期する StateFlow。
+     * 設定画面の「文字起こし方式」と同期する StateFlow。
      * 録音画面にラジオボタンで露出させ、ユーザーが録音前に切替可能にする。
+     * cloud / on_device / network の 3 値。
      */
-    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val asrMode: StateFlow<String> = settings.asrMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsDataStore.ASR_MODE_CLOUD)
 
     /** 設定画面に通知するため、SettingsRepository 経由で永続化する。 */
-    fun setUseOnDeviceAsr(enabled: Boolean) {
-        viewModelScope.launch { settings.setUseOnDeviceAsr(enabled) }
+    fun setAsrMode(mode: String) {
+        viewModelScope.launch { settings.setAsrMode(mode) }
     }
 
     // ─── 録音タイマー ───────────────────────────────────────

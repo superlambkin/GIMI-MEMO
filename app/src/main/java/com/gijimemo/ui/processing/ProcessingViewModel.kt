@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.data.prefs.SettingsDataStore
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.document.MarkdownGenerator
@@ -22,6 +23,7 @@ import com.gijimemo.llm.LlmClient
 import com.gijimemo.llm.LlmEvent
 import com.gijimemo.llm.LlmException
 import com.gijimemo.llm.LlmProvider
+import com.gijimemo.llm.NetworkWhisperClient
 import com.gijimemo.share.EmailShareService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -66,6 +68,8 @@ data class ProcessingState(
     val chunkTimeEstimateMs: Long = 0L,
     /** 分割処理にかかった実際の時間(ms) */
     val splitTimeMs: Long = 0L,
+    /** v0.9.1: 元の音声の長さ(ms)。セッションの durationMs から設定。 */
+    val audioDurationMs: Long = 0L,
     // ── v0.7.2: パフォーマンス計測 ──
     /** モデルロードにかかった時間(ms) */
     val modelLoadMs: Long = 0L,
@@ -96,6 +100,7 @@ class ProcessingViewModel @Inject constructor(
     private val mdGen: MarkdownGenerator,
     private val txtGen: TextGenerator,
     private val emailShare: EmailShareService,
+    private val networkWhisperClient: NetworkWhisperClient,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -117,6 +122,8 @@ class ProcessingViewModel @Inject constructor(
     private var cachedModel: String = ""
     private var cachedPrompt: String = ""
     private var cachedUseOnDevice: Boolean = false
+    /** v0.9.1: 文字起こし方式（cloud / on_device / network） */
+    private var cachedAsrMode: String = SettingsDataStore.ASR_MODE_CLOUD
     /** オンデバイスWhisperのモデル名 */
     private var cachedWhisperModel: String = ""
     /** v0.7.2: GPU 使用フラグ (OpenCL 有効化フラグを State に伝播) */
@@ -129,6 +136,8 @@ class ProcessingViewModel @Inject constructor(
     private var processingStartMs: Long = 0L
     /** 設定から読み込んだチャンクサイズ (MB) */
     private var chunkSizeMb: Int = 10
+    /** v0.9.1: 元の音声の長さ(ms)。結果画面の時間内訳表示用。 */
+    private var sessionAudioDurationMs: Long = 0L
     /** クラウドWhisper文字起こしエンジン（分割・並列送信・リトライ。一括インポートと共有） */
     private val cloudTranscriber = CloudWhisperTranscriber(settings, provider, context)
     /** 音声再生用 MediaPlayer */
@@ -194,6 +203,7 @@ class ProcessingViewModel @Inject constructor(
                 }
 
                 val audioFile = resolveAudioFile(session.audioFilePath)
+                sessionAudioDurationMs = session.durationMs
 
                 // 常にユーザーが選択したプロバイダを使用（autoProviderMode は設定画面にUIがなく無効化済み）
                 val providerConfig = settings.selectedProvider()
@@ -201,9 +211,11 @@ class ProcessingViewModel @Inject constructor(
                 cachedCallMode = callMode
 
                 // 文字起こし（ASR）はユーザー設定に従う（LLMプロバイダのマルチモーダル対応とは無関係）
-                val useOnDevice = settings.useOnDeviceAsr.first()
+                val asrMode = settings.asrMode.first()
+                val useOnDevice = asrMode == SettingsDataStore.ASR_MODE_ON_DEVICE
 
                 cachedAudioFile = audioFile
+                cachedAsrMode = asrMode
                 cachedUseOnDevice = useOnDevice
                 cachedClient = initializeLlmClient(useOnDevice)
 
@@ -215,17 +227,21 @@ class ProcessingViewModel @Inject constructor(
                 chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 24)
                 val decodeEnabled = settings.decodeEnabled.first()
                 Log.d(tag, "Processing start: session=$sessionId provider=${providerConfig.name} " +
-                        "model=$cachedModel mode=$callMode onDevice=$useOnDevice " +
+                        "model=$cachedModel mode=$callMode asrMode=$asrMode onDevice=$useOnDevice " +
                         "supportsMultimodal=${providerConfig.supportsMultimodal} " +
                         "audio=${audioFile.absolutePath} size=${audioFile.length()} " +
                         "chunkSize=${chunkSizeMb}MB decodeEnabled=$decodeEnabled")
 
                 repo.updateStatus(sessionId, SessionStatus.TRANSCRIBING)
 
-                when {
+                when (asrMode) {
                     // オンデバイス Whisper → 端末内処理（分割不要）
-                    useOnDevice -> {
+                    SettingsDataStore.ASR_MODE_ON_DEVICE -> {
                         startTranscribePhase(audioFile)
+                    }
+                    // ローカルPC のネットワーク Whisper サーバ → 分割せずそのまま送信
+                    SettingsDataStore.ASR_MODE_NETWORK -> {
+                        networkTranscribe(audioFile)
                     }
                     // クラウド文字起こしは常に 20MB 分割 Whisper API を使用。
                     else -> {
@@ -307,7 +323,39 @@ class ProcessingViewModel @Inject constructor(
             _state.value = ProcessingState(
                 phase = ProcessingPhase.TRANSCRIBED,
                 rawTranscript = transcript,
-                transcribeDurationMs = transcribeElapsed
+                transcribeDurationMs = transcribeElapsed,
+                audioDurationMs = sessionAudioDurationMs
+            )
+        } catch (e: Exception) {
+            handleError(e)
+        }
+    }
+
+    /**
+     * ローカルPC のネットワーク Whisper サーバで文字起こしする（v0.9.1）。
+     * クラウドと違い 25MB 制限がないため分割せず、ファイル全体をそのまま送信する。
+     */
+    private suspend fun networkTranscribe(audioFile: File) {
+        val url = settings.networkWhisperUrl.first()
+        _state.value = ProcessingState(
+            phase = ProcessingPhase.TRANSCRIBING,
+            useOnDevice = false,
+            activeProvider = "ローカルPC (Whisper)",
+            activeModel = url,
+            detailStatus = "ローカルPC へ送信中..."
+        )
+        try {
+            transcribeStartMs = System.currentTimeMillis()
+            val transcript = networkWhisperClient.transcribe(audioFile, url, langHint.ifBlank { null }).trim()
+            val transcribeElapsed = System.currentTimeMillis() - transcribeStartMs
+            Log.d(tag, "Network transcribe complete: ${transcript.length} chars in ${transcribeElapsed}ms ($url)")
+            _state.value = ProcessingState(
+                phase = ProcessingPhase.TRANSCRIBED,
+                rawTranscript = transcript,
+                transcribeDurationMs = transcribeElapsed,
+                audioDurationMs = sessionAudioDurationMs,
+                activeProvider = "ローカルPC (Whisper)",
+                activeModel = url
             )
         } catch (e: Exception) {
             handleError(e)
@@ -754,14 +802,15 @@ A: （回答）
     /**
      * 文字起こしをリトライする。
      * v0.7.4: クラウドWhisper（OpenAI）とオンデバイスWhisperを正しく振り分け。
+     * v0.9.1: ネットワーク Whisper（ローカルPC）も振り分けに追加。
      */
     fun retryTranscribe() {
         cachedAudioFile?.let { file ->
             viewModelScope.launch {
-                if (cachedUseOnDevice) {
-                    startTranscribePhase(file)
-                } else {
-                    chunkAndTranscribe(file)
+                when (cachedAsrMode) {
+                    SettingsDataStore.ASR_MODE_ON_DEVICE -> startTranscribePhase(file)
+                    SettingsDataStore.ASR_MODE_NETWORK -> networkTranscribe(file)
+                    else -> chunkAndTranscribe(file)
                 }
             }
         }
@@ -919,6 +968,8 @@ A: （回答）
                 phase = ProcessingPhase.TRANSCRIBED,
                 rawTranscript = result,
                 transcribeDurationMs = transcribeElapsed,
+                splitTimeMs = _state.value.splitTimeMs,
+                audioDurationMs = sessionAudioDurationMs,
                 activeProvider = "OpenAI (Whisper)",
                 activeModel = "whisper-1"
             )

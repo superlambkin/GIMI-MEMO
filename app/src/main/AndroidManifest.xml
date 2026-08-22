@@ -30,12 +30,18 @@
         </intent>
     </queries>
 
+    <!--
+        v0.9.1: ローカルPC のネットワーク Whisper サーバ（http://192.168.0.88:9000 等）と
+        Ollama（http://10.0.2.2:11434）は平文 HTTP のため usesCleartextTraffic を許可する。
+        POC アプリであり証明書不要のローカル/社内サーバ接続を想定。
+    -->
     <application
         android:name=".GijiMemoApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.GijiMemo">
 
         <activity

@@ -70,12 +70,16 @@ class SettingsRepository @Inject constructor(
     }
 
     val defaultCallMode get() = store.defaultCallMode
+    val asrMode get() = store.asrMode
     val useOnDeviceAsr get() = store.useOnDeviceAsr
+    val networkWhisperUrl get() = store.networkWhisperUrl
     val whisperModel get() = store.whisperModel
     val decodeEnabled get() = store.decodeEnabled
     val cloudAsrProvider get() = store.cloudAsrProvider
 
+    suspend fun setAsrMode(v: String) = store.setAsrMode(v)
     suspend fun setUseOnDeviceAsr(v: Boolean) = store.setUseOnDeviceAsr(v)
+    suspend fun setNetworkWhisperUrl(v: String) = store.setNetworkWhisperUrl(v)
     suspend fun setDecodeEnabled(v: Boolean) = store.setDecodeEnabled(v)
     suspend fun setCloudAsrProvider(v: String) = store.setCloudAsrProvider(v)
     val transcribePerfFactor get() = store.transcribePerfFactor

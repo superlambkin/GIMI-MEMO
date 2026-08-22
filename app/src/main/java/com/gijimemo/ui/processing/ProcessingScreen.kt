@@ -128,6 +128,8 @@ fun ProcessingScreen(
                     transcript = editedTranscript,
                     onTranscriptChange = { editedTranscript = it },
                     transcribeDurationMs = state.transcribeDurationMs,
+                    splitTimeMs = state.splitTimeMs,
+                    audioDurationMs = state.audioDurationMs,
                     isPlaying = isPlaying,
                     playbackPositionMs = playPos,
                     playbackDurationMs = playDur,
@@ -638,6 +640,8 @@ private fun TranscribedContent(
     transcript: String,
     onTranscriptChange: (String) -> Unit,
     transcribeDurationMs: Long,
+    splitTimeMs: Long = 0L,
+    audioDurationMs: Long = 0L,
     isPlaying: Boolean,
     playbackPositionMs: Long,
     playbackDurationMs: Long,
@@ -681,6 +685,36 @@ private fun TranscribedContent(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        // v0.9.1: 元の音声時間 と 変換時間（分割チャンク時間 / 変換時間）の内訳表示
+        if (audioDurationMs > 0L || splitTimeMs > 0L) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (audioDurationMs > 0L) {
+                    Text(
+                        "音声時間: ${formatProcessingDuration(audioDurationMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (splitTimeMs > 0L) {
+                    Text(
+                        "分割: ${formatProcessingDuration(splitTimeMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (transcribeDurationMs > splitTimeMs) {
+                    Text(
+                        "変換: ${formatProcessingDuration(transcribeDurationMs - splitTimeMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 

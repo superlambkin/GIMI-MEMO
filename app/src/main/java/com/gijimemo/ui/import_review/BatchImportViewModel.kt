@@ -9,9 +9,11 @@ import androidx.lifecycle.viewModelScope
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.Session
 import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.data.prefs.SettingsDataStore
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
 import com.gijimemo.llm.LlmProvider
+import com.gijimemo.llm.NetworkWhisperClient
 import com.gijimemo.ui.processing.CloudWhisperTranscriber
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -65,6 +67,7 @@ class BatchImportViewModel @Inject constructor(
     private val repo: SessionRepository,
     private val settings: SettingsRepository,
     private val provider: LlmProvider,
+    private val networkWhisperClient: NetworkWhisperClient,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -180,30 +183,41 @@ class BatchImportViewModel @Inject constructor(
         }
     }
 
-    /** 1 ファイルを転写する。オンデバイス設定なら端末内 Whisper、それ以外はクラウド Whisper。 */
+    /**
+     * 1 ファイルを転写する。文字起こし方式（asr_mode）に従い、
+     * オンデバイス（スマホ）/ ネットワーク（ローカルPC）/ クラウド（OpenAI 等）を振り分ける。
+     */
     private suspend fun transcribeOne(session: Session): String {
         val file = File(session.audioFilePath)
-        val useOnDevice = settings.useOnDeviceAsr.first()
-        return if (useOnDevice) {
-            val providerConfig = settings.selectedProvider()
-            val apiKey = settings.getApiKey(providerConfig.apiKeyRef)
-                ?: if (providerConfig.name == "Ollama") "ollama"
-                else error("API Key for ${providerConfig.name} not set")
-            val model = settings.modelForProvider(providerConfig.name).first()
-                ?: providerConfig.defaultModel
-            val client = provider.createClient(
-                config = providerConfig,
-                apiKey = apiKey,
-                model = model,
-                useOnDeviceAsr = true
-            )
-            _state.update { it.copy(currentDetail = "端末内 Whisper で文字起こし中...") }
-            client.transcribeOnly(file)
-        } else {
-            val chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 24)
-            cloudTranscriber.transcribeFile(file, chunkSizeMb) { p ->
-                val chunkSuffix = if (p.totalChunks > 0) " (Chunk ${p.completedChunks}/${p.totalChunks})" else ""
-                _state.update { it.copy(currentDetail = p.detailStatus + chunkSuffix) }
+        val asrMode = settings.asrMode.first()
+        return when (asrMode) {
+            SettingsDataStore.ASR_MODE_ON_DEVICE -> {
+                val providerConfig = settings.selectedProvider()
+                val apiKey = settings.getApiKey(providerConfig.apiKeyRef)
+                    ?: if (providerConfig.name == "Ollama") "ollama"
+                    else error("API Key for ${providerConfig.name} not set")
+                val model = settings.modelForProvider(providerConfig.name).first()
+                    ?: providerConfig.defaultModel
+                val client = provider.createClient(
+                    config = providerConfig,
+                    apiKey = apiKey,
+                    model = model,
+                    useOnDeviceAsr = true
+                )
+                _state.update { it.copy(currentDetail = "端末内 Whisper で文字起こし中...") }
+                client.transcribeOnly(file)
+            }
+            SettingsDataStore.ASR_MODE_NETWORK -> {
+                val url = settings.networkWhisperUrl.first()
+                _state.update { it.copy(currentDetail = "ローカルPC (Whisper) で文字起こし中...") }
+                networkWhisperClient.transcribe(file, url, null).trim()
+            }
+            else -> {
+                val chunkSizeMb = settings.defaultChunkMinutes.first().coerceIn(1, 24)
+                cloudTranscriber.transcribeFile(file, chunkSizeMb) { p ->
+                    val chunkSuffix = if (p.totalChunks > 0) " (Chunk ${p.completedChunks}/${p.totalChunks})" else ""
+                    _state.update { it.copy(currentDetail = p.detailStatus + chunkSuffix) }
+                }
             }
         }
     }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -35,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,18 +51,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gijimemo.data.model.LlmCallMode
+import com.gijimemo.data.prefs.SettingsDataStore
+import com.gijimemo.ui.recording.AsrModeSelector
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,26 +236,15 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // オンデバイスWhisper
-            val useOnDevice by viewModel.useOnDeviceAsr.collectAsStateWithLifecycle()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("オンデバイスWhisper", style = MaterialTheme.typography.bodyMedium)
-                }
-                Switch(checked = useOnDevice, onCheckedChange = { viewModel.setUseOnDeviceAsr(it) })
-            }
-            if (useOnDevice) {
-                Text(
-                    "端末内で文字起こしを実行します（初回使用時にモデル ~55MB をダウンロード）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
+            // ─── 文字起こし方式（ASR）3択 ────────────────
+            val asrMode by viewModel.asrMode.collectAsStateWithLifecycle()
+            AsrModeSelector(
+                mode = asrMode,
+                onChange = { viewModel.setAsrMode(it) }
+            )
+            if (asrMode == SettingsDataStore.ASR_MODE_NETWORK) {
+                Spacer(Modifier.height(8.dp))
+                NetworkWhisperConfig(viewModel)
             }
         }
 
@@ -724,6 +719,68 @@ fun SettingsScreen(
 }
 
 // ─── ヘルパーコンポーネント ─────────────────────────────────
+
+/**
+ * ローカルPC のネットワーク Whisper サーバ設定。
+ * URL 入力 → 「接続テスト」成功後のみ「保存」を有効化する
+ * （テスト成功で設定保存できる仕様）。
+ */
+@Composable
+private fun NetworkWhisperConfig(viewModel: SettingsViewModel) {
+    val savedUrl by viewModel.networkWhisperUrl.collectAsStateWithLifecycle()
+    val testState by viewModel.networkAsrTest.collectAsStateWithLifecycle()
+    var urlInput by remember { mutableStateOf(savedUrl) }
+    // 保存（外部更新）後にフォームへ反映
+    LaunchedEffect(savedUrl) { urlInput = savedUrl }
+
+    SettingsLabel("ローカルPC Whisper URL")
+    OutlinedTextField(
+        value = urlInput,
+        onValueChange = {
+            urlInput = it
+            // URL を編集したらテスト結果を無効化（再テスト必須）
+            if (testState.success != null) viewModel.clearNetworkAsrTest()
+        },
+        label = { Text("http://192.168.0.88:9000/asr") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedButton(
+            onClick = { viewModel.testNetworkAsr(urlInput) },
+            enabled = !testState.testing && urlInput.isNotBlank(),
+            modifier = Modifier.weight(1f).heightIn(min = 44.dp)
+        ) {
+            if (testState.testing) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(if (testState.testing) "テスト中..." else "接続テスト")
+        }
+        Button(
+            onClick = { viewModel.setNetworkWhisperUrl(urlInput) },
+            enabled = testState.success == true,
+            modifier = Modifier.heightIn(min = 44.dp)
+        ) { Text("保存") }
+    }
+    if (testState.message.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = testState.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = when (testState.success) {
+                true -> Color(0xFF2E7D32)
+                false -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
 
 /** 設定のセクションカード：タイトル + アイコン + コンテンツ */
 @Composable

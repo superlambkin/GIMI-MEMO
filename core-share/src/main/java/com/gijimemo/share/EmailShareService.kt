@@ -37,9 +37,11 @@ class EmailShareService @Inject constructor(
         body: String,
         recipient: String
     ): Intent {
-        // 添付 MIME。"application/octet-stream" は Gmail でも添付として確実に扱われる。
-        // "message/rfc822" は Gmail が「メール本文」として解釈し添付が破棄される問題があった。
-        val attachmentMime = "application/octet-stream"
+        // v0.9.1: MIME は "*/*" にする。従来 "application/octet-stream" 固定だと、
+        // Gmail が ACTION_SEND_MULTIPLE で「型に一致しない」添付（例: .txt → text/plain）を
+        // 破棄する問題があった（docx/md は MIME マップ未登録で octet-stream 扱いのため残る）。
+        // "*/*" にすると全ファイルが型一致として添付される。
+        val attachmentMime = "*/*"
 
         // FileProvider URI 一覧を先に作る (ClipData 用にも使う)
         val uris = attachments.map { file ->

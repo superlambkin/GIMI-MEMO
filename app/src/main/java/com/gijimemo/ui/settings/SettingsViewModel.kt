@@ -2,13 +2,17 @@ package com.gijimemo.ui.settings
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gijimemo.R
 import com.gijimemo.data.model.LlmCallMode
 import com.gijimemo.data.model.LlmProviderConfig
 import com.gijimemo.data.model.SessionStatus
+import com.gijimemo.data.prefs.SettingsDataStore
 import com.gijimemo.data.repository.SessionRepository
 import com.gijimemo.data.repository.SettingsRepository
+import com.gijimemo.llm.NetworkWhisperClient
 import com.gijimemo.whisper.ModelManager
 import com.gijimemo.whisper.WhisperModelInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +27,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -31,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val sessionRepo: SessionRepository,
     private val modelManager: ModelManager,
+    private val networkWhisperClient: NetworkWhisperClient,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -59,8 +65,60 @@ class SettingsViewModel @Inject constructor(
     val promptTemplate: StateFlow<String> = settings.defaultPromptTemplate
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
-    val useOnDeviceAsr: StateFlow<Boolean> = settings.useOnDeviceAsr
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    /** 文字起こし方式: cloud / on_device / network（設定画面・録音画面と同期） */
+    val asrMode: StateFlow<String> = settings.asrMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsDataStore.ASR_MODE_CLOUD)
+    fun setAsrMode(v: String) = viewModelScope.launch { settings.setAsrMode(v) }
+
+    /** ローカルPC のネットワーク Whisper サーバ URL */
+    val networkWhisperUrl: StateFlow<String> = settings.networkWhisperUrl
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsDataStore.DEFAULT_NETWORK_WHISPER_URL)
+    fun setNetworkWhisperUrl(v: String) = viewModelScope.launch { settings.setNetworkWhisperUrl(v.trim()) }
+
+    /** ネットワーク Whisper 接続テストの状態 */
+    data class NetworkAsrTestState(
+        val testing: Boolean = false,
+        /** null=未実施 / true=成功 / false=失敗 */
+        val success: Boolean? = null,
+        val message: String = ""
+    )
+
+    private val _networkAsrTest = MutableStateFlow(NetworkAsrTestState())
+    val networkAsrTest: StateFlow<NetworkAsrTestState> = _networkAsrTest.asStateFlow()
+
+    /**
+     * ローカルPC の Whisper サーバへテスト音声を送信して接続を確認する。
+     * 成功時にのみ設定保存（[setNetworkWhisperUrl]）を許可する UI 用。
+     */
+    fun testNetworkAsr(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty() || _networkAsrTest.value.testing) return
+        viewModelScope.launch {
+            _networkAsrTest.value = NetworkAsrTestState(testing = true)
+            try {
+                val testFile = File(context.cacheDir, "asr_test.mp3")
+                context.resources.openRawResource(R.raw.asr_test).use { input ->
+                    testFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                val text = networkWhisperClient.transcribe(testFile, trimmed).trim()
+                _networkAsrTest.value = NetworkAsrTestState(
+                    success = true,
+                    message = if (text.isEmpty()) "接続成功（サーバ応答 OK）"
+                    else "接続成功（認識: ${text.take(60)}${if (text.length > 60) "…" else ""}）"
+                )
+            } catch (e: Exception) {
+                Log.w("SettingsVM", "NetworkWhisper test failed: ${e.message}", e)
+                _networkAsrTest.value = NetworkAsrTestState(
+                    success = false,
+                    message = "接続失敗: ${e.message ?: e::class.java.simpleName}"
+                )
+            }
+        }
+    }
+
+    fun clearNetworkAsrTest() {
+        _networkAsrTest.value = NetworkAsrTestState()
+    }
 
     val decodeEnabled: StateFlow<Boolean> = settings.decodeEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
@@ -190,7 +248,6 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setCallMode(v: LlmCallMode) = viewModelScope.launch { settings.setDefaultCallMode(v) }
-    fun setUseOnDeviceAsr(v: Boolean) = viewModelScope.launch { settings.setUseOnDeviceAsr(v) }
     fun setDecodeEnabled(v: Boolean) = viewModelScope.launch { settings.setDecodeEnabled(v) }
     fun setChunkMinutes(v: Int) = viewModelScope.launch { settings.setDefaultChunkMinutes(v) }
     fun setPromptTemplate(v: String) = viewModelScope.launch { settings.setDefaultPromptTemplate(v) }

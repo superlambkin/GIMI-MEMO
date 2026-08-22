@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Mic
@@ -64,12 +65,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gijimemo.audio.RecordingState
+import com.gijimemo.data.prefs.SettingsDataStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
@@ -440,7 +443,7 @@ private fun StoppedPlaybackAndTranscribe(
     viewModel: RecordingViewModel
 ) {
     val pbState by viewModel.playbackState.collectAsState()
-    val useOnDeviceAsr by viewModel.useOnDeviceAsr.collectAsState()
+    val asrMode by viewModel.asrMode.collectAsState()
     var showSaveDialog by remember { mutableStateOf(false) }
     val lastSession by viewModel.lastSavedSession.collectAsState()
     when (pbState) {
@@ -520,10 +523,10 @@ private fun StoppedPlaybackAndTranscribe(
         )
     }
     Spacer(Modifier.height(4.dp))
-    // ─── ローカルWhisper切替 (設定画面と同期) ──────────────
-    LocalWhisperToggle(
-        useOnDevice = useOnDeviceAsr,
-        onChange = { viewModel.setUseOnDeviceAsr(it) }
+    // ─── 文字起こし方式 (設定画面と同期) ──────────────
+    AsrModeSelector(
+        mode = asrMode,
+        onChange = { viewModel.setAsrMode(it) }
     )
     Spacer(Modifier.height(4.dp))
     // ─── 言語別 文字起こしボタン (2 列) ────────────────────
@@ -655,15 +658,17 @@ private fun formatDuration(ms: Long): String {
 }
 
 /**
- * ローカルWhisper ON/OFF ラジオグループ。
- * 設定画面 > 呼び出しモード > オンデバイスWhisper と StateFlow 経由で同期。
- * 録音画面 (RecordingScreen) と録音確認画面 (ImportReviewScreen,
- * StoppedPlaybackAndTranscribe) の両方から呼ばれる。
+ * 文字起こし方式の 3 択ラジオグループ。
+ * - クラウド（OpenAI等）: 既定。分割してクラウド Whisper API に送信
+ * - ローカル（スマートフォン）: whisper.cpp を端末内で実行（初回にモデル DL）
+ * - ローカル（ローカルPC）: ネットワーク上の Whisper サーバ（URL は設定画面で指定）
+ * 設定画面 (SettingsScreen) と同期し、録音画面 (RecordingScreen) と
+ * 録音確認画面 (ImportReviewScreen) の両方から呼ばれる。
  */
 @Composable
-internal fun LocalWhisperToggle(
-    useOnDevice: Boolean,
-    onChange: (Boolean) -> Unit
+internal fun AsrModeSelector(
+    mode: String,
+    onChange: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -673,37 +678,33 @@ internal fun LocalWhisperToggle(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                "ローカルWhisper",
+                "文字起こし方式",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Spacer(Modifier.height(4.dp))
+            listOf(
+                SettingsDataStore.ASR_MODE_CLOUD to "クラウド（OpenAI等）",
+                SettingsDataStore.ASR_MODE_ON_DEVICE to "ローカル（スマートフォン）",
+                SettingsDataStore.ASR_MODE_NETWORK to "ローカル（ローカルPC）"
+            ).forEach { (value, label) ->
                 Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 40.dp),
+                        .fillMaxWidth()
+                        .heightIn(min = 40.dp)
+                        // v0.9.1: ラベル行のどこをタップしても選択できるようにする
+                        .selectable(
+                            selected = mode == value,
+                            onClick = { onChange(value) },
+                            role = Role.RadioButton
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
-                        selected = !useOnDevice,
-                        onClick = { onChange(false) }
+                        selected = mode == value,
+                        onClick = null // Row 側で選択を処理
                     )
-                    Text("OFF", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 40.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = useOnDevice,
-                        onClick = { onChange(true) }
-                    )
-                    Text("ON", style = MaterialTheme.typography.bodyMedium)
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }

@@ -68,13 +68,13 @@ object MarkdownToWordMapper {
         val paragraph = document.createParagraph()
         paragraph.style = style
         val run = paragraph.createRun()
-        run.setText(text)
+        run.setText(stripAsterisks(text))
     }
 
     private fun addBlockQuote(document: XWPFDocument, text: String) {
         val paragraph = document.createParagraph()
         val run = paragraph.createRun()
-        run.setText("\"$text\"")
+        run.setText("\"${stripAsterisks(text)}\"")
         run.isItalic = true
     }
 
@@ -82,19 +82,19 @@ object MarkdownToWordMapper {
         val checkbox = if (checked) "☑ " else "☐ "
         val paragraph = document.createParagraph()
         val run = paragraph.createRun()
-        run.setText(checkbox + text)
+        run.setText(checkbox + stripAsterisks(text))
     }
 
     private fun addBulletItem(document: XWPFDocument, text: String) {
         val paragraph = document.createParagraph()
         val run = paragraph.createRun()
-        run.setText("• $text")
+        run.setText("• ${stripAsterisks(text)}")
     }
 
     private fun addOrderedItem(document: XWPFDocument, text: String) {
         val paragraph = document.createParagraph()
         val run = paragraph.createRun()
-        run.setText(text)
+        run.setText(stripAsterisks(text))
     }
 
     private fun addParagraphWithInlineStyles(document: XWPFDocument, text: String) {
@@ -132,12 +132,24 @@ object MarkdownToWordMapper {
                     remaining = remaining.substring(codeMatch.range.last + 1)
                 }
                 else -> {
-                    paragraph.createRun().setText(remaining)
+                    paragraph.createRun().setText(stripAsterisks(remaining))
                     break
                 }
             }
         }
     }
+
+    /**
+     * v0.9.1: Markdown の **bold** / *italic* マーカーを除去し、Word 文書に
+     * アスタリスクがそのまま残らないようにする。
+     * 一致する **...** は内容だけ残し、不一致の ** や単独 * も削除する。
+     */
+    private fun stripAsterisks(text: String): String =
+        text
+            .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+            .replace("**", "")
+            .replace(Regex("\\*(.+?)\\*"), "$1")
+            .replace("*", "")
 
     private fun flushCodeBlock(document: XWPFDocument, content: StringBuilder) {
         val paragraph = document.createParagraph()
