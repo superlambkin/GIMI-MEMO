@@ -117,6 +117,7 @@ fun ProcessingScreen(
                     chunkTimeEstimateMs = state.chunkTimeEstimateMs,
                     useGpu = state.useGpu,
                     threadCount = state.threadCount,
+                    audioDurationMs = state.audioDurationMs,
                     onCancel = onError
                 )
             }
@@ -306,6 +307,7 @@ private fun TranscribingContent(
     chunkTimeEstimateMs: Long = 0L,
     useGpu: Boolean = false,
     threadCount: Int = 0,
+    audioDurationMs: Long = 0L,
     onCancel: (() -> Unit)? = null,
 ) {
     // v0.7.2: システムメトリクス (CPU/メモリ/GPU) を 1秒間隔で取得
@@ -385,6 +387,15 @@ private fun TranscribingContent(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        // v0.9.2: 文字起こし中画面に元の音声時間を表示
+        if (audioDurationMs > 0L) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "音声時間: ${formatProcessingDuration(audioDurationMs)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
 

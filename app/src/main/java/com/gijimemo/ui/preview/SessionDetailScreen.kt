@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -334,7 +335,9 @@ fun SessionDetailScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            // 下段ボタン行: 共有 / 戻る / 削除（同色背景）
+            // 下段ボタン行: メール / 共有 / 戻る / 削除（同色背景）
+            // v0.9.2: 「共有」をメールと他アプリ共有（WeChat/LINE 等）の 2 ボタンに分離。
+            // メール/共有はアイコンのみ表示（タップ領域は従来どおり）。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -347,19 +350,26 @@ fun SessionDetailScreen(
                     enabled = state.session != null && recipient.isNotBlank() && state.markdown.isNotBlank(),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) {
-                    Text("共有", fontSize = 13.sp)
+                    Icon(Icons.Filled.Email, contentDescription = "メールで送信", modifier = Modifier.width(18.dp))
+                }
+                Button(
+                    onClick = { viewModel.shareToApps() },
+                    enabled = state.session != null && state.markdown.isNotBlank(),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "他アプリへ共有", modifier = Modifier.width(18.dp))
                 }
                 OutlinedButton(
                     onClick = onBack,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) {
-                    Text("戻る", fontSize = 13.sp)
+                    Text("戻る", fontSize = 12.sp)
                 }
                 OutlinedButton(
                     onClick = { showDeleteDialog = true },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) {
-                    Text("削除", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                    Text("削除", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                 }
             }
         }
