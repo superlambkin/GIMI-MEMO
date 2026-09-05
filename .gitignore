@@ -30,6 +30,10 @@ debug_v060/
 gijimemo.db
 gijimemo_check.db
 
+# AI エージェント用一時ファイル
+.codex/
+gradle-test-*.log
+
 # Debug screenshots
 after_12min_transcribe/
 after_transcribe/
