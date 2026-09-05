@@ -182,6 +182,10 @@ class ProcessingViewModel @Inject constructor(
         if (_state.value.phase != ProcessingPhase.IDLE && _state.value.phase != ProcessingPhase.ERROR) return
         _state.value = ProcessingState() // ERROR からも再開可能に
         processingStartMs = System.currentTimeMillis()
+        // v0.9.2: 文字起こし結果の処理時間は「（日本語）を押してから結果が出るまで」とする。
+        // 従来は転写フェーズ開始時点から計測していたため、画面遷移・設定読込・クライアント初期化
+        // の数秒が含まれなかった。start()（＝ボタン押下直後）を起点に統一する。
+        transcribeStartMs = System.currentTimeMillis()
 
         // 画面オフ対策: ForegroundService + WakeLock を開始
         TranscriptionService.start(context)
@@ -312,11 +316,11 @@ class ProcessingViewModel @Inject constructor(
             useOnDevice = cachedUseOnDevice, useGpu = cachedUseGpu,
             threadCount = 4,
             activeProvider = cachedProviderName,
-            activeModel = transcribingModel
+            activeModel = transcribingModel,
+            audioDurationMs = sessionAudioDurationMs
         )
 
         try {
-            transcribeStartMs = System.currentTimeMillis()
             val transcript = client.transcribeOnly(audioFile)
             val transcribeElapsed = System.currentTimeMillis() - transcribeStartMs
             Log.d(tag, "Transcribe complete: ${transcript.length} chars in ${transcribeElapsed}ms")
@@ -342,10 +346,10 @@ class ProcessingViewModel @Inject constructor(
             useOnDevice = false,
             activeProvider = "ローカルPC (Whisper)",
             activeModel = url,
-            detailStatus = "ローカルPC へ送信中..."
+            detailStatus = "ローカルPC へ送信中...",
+            audioDurationMs = sessionAudioDurationMs
         )
         try {
-            transcribeStartMs = System.currentTimeMillis()
             val transcript = networkWhisperClient.transcribe(audioFile, url, langHint.ifBlank { null }).trim()
             val transcribeElapsed = System.currentTimeMillis() - transcribeStartMs
             Log.d(tag, "Network transcribe complete: ${transcript.length} chars in ${transcribeElapsed}ms ($url)")
@@ -807,6 +811,8 @@ A: （回答）
     fun retryTranscribe() {
         cachedAudioFile?.let { file ->
             viewModelScope.launch {
+                // v0.9.2: リトライ時はリトライ押下を起点に処理時間を再計測
+                transcribeStartMs = System.currentTimeMillis()
                 when (cachedAsrMode) {
                     SettingsDataStore.ASR_MODE_ON_DEVICE -> startTranscribePhase(file)
                     SettingsDataStore.ASR_MODE_NETWORK -> networkTranscribe(file)
@@ -914,7 +920,8 @@ A: （回答）
             useOnDevice = false,
             activeProvider = "OpenAI (Whisper)",
             activeModel = "whisper-1",
-            detailStatus = "準備中..."
+            detailStatus = "準備中...",
+            audioDurationMs = sessionAudioDurationMs
         )
 
         // 初期予測（ファイルサイズベース）：即座に円グラフ表示するため
@@ -939,8 +946,7 @@ A: （回答）
             splitTimeMs = estimatedSplitMs
         )
 
-        // 文字起こし専用時間計測開始
-        transcribeStartMs = System.currentTimeMillis()
+        // 文字起こし専用時間計測開始（起点は start() = ボタン押下時。v0.9.2）
         val t0 = System.currentTimeMillis()
 
         try {

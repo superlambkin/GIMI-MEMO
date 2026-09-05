@@ -183,4 +183,64 @@ class EmailShareService @Inject constructor(
             ).show()
         }
     }
+
+    /**
+     * 変換結果（要約テキスト）を他アプリ（WeChat / LINE 等）へ送信する。
+     * v0.9.2: チャットアプリ向けにテキストのみを共有する（ファイルは添付しない）。
+     * Markdown 記法（# / ** / * / - リスト / [ ] など）は除去して送信する。
+     * メーラーは使わず、Android 標準の共有シートを開く。
+     * @param text 共有するテキスト（議事録 Markdown 等）
+     */
+    fun shareToApps(text: String) {
+        val clean = stripMarkdown(text)
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, clean)
+        }
+        try {
+            val chooser = Intent.createChooser(sendIntent, "共有").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            Log.d(TAG, "shareToApps: textOnly=${clean.length}chars")
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Log.e(TAG, "shareToApps failed: ${e.message}", e)
+            Toast.makeText(
+                context,
+                "共有に失敗しました: ${e.message ?: e::class.java.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+}
+
+/**
+ * 共有テキストから Markdown 記法を取り除き、チャット送信向けのプレーンテキストにする。
+ * - 見出し `# 〜######`
+ * - 太字・斜体 `**text**` / `*text*` / `***text***`
+ * - 箇条書き `-` / `*` / `+`、チェックボックス `- [ ]` / `- [x]`
+ * - 引用 `>`、水平線 `---`、リンク `[text](url)`、コードフェンス
+ * 番号付きリスト（`1.` 等）の数字は内容として残す。
+ */
+internal fun stripMarkdown(text: String): String {
+    var s = text
+    // コードフェンス全体を除去
+    s = Regex("```[\\s\\S]*?```").replace(s, "")
+    // 水平線（--- / *** / ___）※ \s は改行を食うため [ \t] のみ使用
+    s = Regex("^[ \\t]*(?:-{3,}|\\*{3,}|_{3,})[ \\t]*$", RegexOption.MULTILINE).replace(s, "")
+    // 見出し #〜######
+    s = Regex("^[ \\t]{0,3}#{1,6}[ \\t]+", RegexOption.MULTILINE).replace(s, "")
+    // 太字・斜体
+    s = Regex("\\*{1,3}([^*\\n]+)\\*{1,3}").replace(s, "$1")
+    // 引用 >
+    s = Regex("^[ \\t]*>[ \\t]?", RegexOption.MULTILINE).replace(s, "")
+    // チェックボックス - [ ] / - [x] / - [X]
+    s = Regex("^[ \\t]*[-*+][ \\t]*\\[[ xX]\\][ \\t]*", RegexOption.MULTILINE).replace(s, "")
+    // 箇条書き - / * / +
+    s = Regex("^[ \\t]*[-*+][ \\t]+", RegexOption.MULTILINE).replace(s, "")
+    // リンク [text](url) → text
+    s = Regex("\\[([^\\]]+)\\]\\([^)]*\\)").replace(s, "$1")
+    // 連続する空行（3 行以上）を 1 つの空行にまとめる
+    s = Regex("\\n{3,}").replace(s, "\n\n")
+    return s.trim()
 }

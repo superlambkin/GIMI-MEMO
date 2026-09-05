@@ -14,7 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -306,13 +308,26 @@ fun PreviewScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        // ─── メールで共有 ──────────────────────────────
-        Button(
-            onClick = { viewModel.share(recipient) },
-            enabled = state.session != null && recipient.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(52.dp)
+        // ─── メール / 共有（v0.9.2: 2 ボタンに分割・アイコンのみ） ──
+        // メール: 従来仕様（受信者指定・添付付き）。共有: 他アプリ（WeChat/LINE 等）へ送信。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("メールで共有", fontSize = 14.sp)
+            Button(
+                onClick = { viewModel.share(recipient) },
+                enabled = state.session != null && recipient.isNotBlank(),
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) {
+                Icon(Icons.Filled.Email, contentDescription = "メールで送信", modifier = Modifier.width(20.dp))
+            }
+            Button(
+                onClick = { viewModel.shareToApps() },
+                enabled = state.session != null && state.markdown.isNotBlank(),
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = "他アプリへ共有", modifier = Modifier.width(20.dp))
+            }
         }
 
         Spacer(Modifier.height(12.dp))

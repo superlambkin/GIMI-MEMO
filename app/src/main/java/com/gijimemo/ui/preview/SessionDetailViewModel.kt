@@ -501,14 +501,12 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    fun share(recipient: String) {
-        val s = _state.value.session ?: return
-
-        // v0.9.1: 原文 TXT は未生成のため、共有時に作成してから添付する。
+    /**
+     * 共有用ファイル（docx/md/txt）を用意する。原文 TXT が未生成なら作成する。
+     */
+    private fun prepareShareFiles(s: Session, datePartFileName: String): List<File> {
         val docsDir = File(context.filesDir, "docs")
         val originalFile = File(docsDir, "${s.id}_original.txt")
-        val datePartFileName = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault())
-            .format(java.util.Date(s.createdAt))
         val txtFile = File(docsDir, "${datePartFileName}_原文.txt")
         if (!txtFile.exists() && originalFile.exists()) {
             txtGen.generate(originalFile.readText(), txtFile)
@@ -517,12 +515,19 @@ class SessionDetailViewModel @Inject constructor(
         if (!txtFile.exists() && raw != null) {
             txtGen.generate(raw, txtFile)
         }
-
-        val files = listOfNotNull(
+        return listOfNotNull(
             _state.value.docxPath?.let { File(it) },
             _state.value.mdPath?.let { File(it) },
             if (txtFile.exists()) txtFile else null
         ).filter { it.exists() }
+    }
+
+    /** 変換結果をメールで送信する（従来仕様）。 */
+    fun share(recipient: String) {
+        val s = _state.value.session ?: return
+        val datePartFileName = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault())
+            .format(java.util.Date(s.createdAt))
+        val files = prepareShareFiles(s, datePartFileName)
         if (files.isEmpty()) return
         val datePart = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date(s.createdAt))
@@ -532,6 +537,23 @@ class SessionDetailViewModel @Inject constructor(
             body = "${s.title}の議事録をお送りします。\n\n生成日時: ${datePart}\n\n添付ファイル:\n・${files.firstOrNull()?.name ?: ""} (Word)\n・${files.getOrNull(1)?.name ?: ""} (Markdown)\n・${files.getOrNull(2)?.name ?: ""} (原文TXT)\n",
             recipient = recipient
         )
+        viewModelScope.launch {
+            repo.updateStatus(s.id, SessionStatus.SHARED)
+            _state.value.session?.let {
+                _state.value = _state.value.copy(session = it.copy(status = SessionStatus.SHARED))
+            }
+        }
+    }
+
+    /**
+     * 変換結果（要約テキスト）を他アプリ（WeChat / LINE 等）へ送信する。
+     * v0.9.2: テキストのみ共有（ファイルは添付しない）。
+     */
+    fun shareToApps() {
+        val s = _state.value.session ?: return
+        val markdown = _state.value.markdown
+        if (markdown.isBlank()) return
+        emailShare.shareToApps(text = markdown)
         viewModelScope.launch {
             repo.updateStatus(s.id, SessionStatus.SHARED)
             _state.value.session?.let {
